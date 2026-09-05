@@ -19,10 +19,12 @@ import { createToonMaterial, setToonTimeOfDay } from './render/toonMaterial';
 import { createPostPipeline } from './render/postPipeline';
 import type { PostFxState } from './render/postPipeline';
 import { createAurora } from './render/aurora';
+import { createVista } from './render/vista';
 import { createBackdrop } from './world/backdrop';
 import { loadProp } from './world/props';
 import { LAYER_ENERGY } from './contracts';
 import gateUrl from './assets/models/gate.glb?url';
+import vistaUrl from './assets/textures/keyart-vista-plate.png?url';
 
 const params = new URLSearchParams(window.location.search);
 const app = document.getElementById('app');
@@ -93,17 +95,24 @@ const snow = new THREE.Mesh(
 snow.geometry.computeVertexNormals();
 stage.scene.add(snow);
 
-// A vast flat apron carries the snowfield out to the horizon so the backdrop
-// peaks and cliffs never float above a sky gap.
+// A vast flat apron carries the snowfield out to the horizon so the vista
+// band never shows a gap under the painting's ice line. Color sampled from
+// the painting's far field.
 const farGround = new THREE.Mesh(
   new THREE.CircleGeometry(4200, 48),
-  createToonMaterial({ color: 0xe8f4fd, rimStrength: 0.2 }),
+  createToonMaterial({ color: 0x9fc8e6, rimStrength: 0.2 }),
 );
 farGround.rotation.x = -Math.PI / 2;
 farGround.position.y = -0.6;
 stage.scene.add(farGround);
 
-// The key-art vista: skyline peaks, right-hand ice cliffs, glowing ravine.
+// The far scenery is the key art itself (awaited so harness screenshots are
+// deterministic).
+const vistaTexture = await new THREE.TextureLoader().loadAsync(vistaUrl);
+const vista = createVista(vistaTexture);
+stage.scene.add(vista.object);
+
+// Near/mid scenery: glowing ravine, scattered ice shards.
 const backdrop = createBackdrop();
 stage.scene.add(backdrop.object);
 
@@ -111,7 +120,7 @@ stage.scene.add(backdrop.object);
 // first asset off the Blender headless pipeline. Awaited so harness
 // screenshots are deterministic.
 const gate = await loadProp(gateUrl);
-gate.scale.setScalar(1.5);
+gate.scale.setScalar(1.8);
 gate.position.set(-26, 2.0, 85);
 stage.scene.add(gate);
 
@@ -153,6 +162,7 @@ function renderFrame(dt: number): void {
   applyTimeOfDay();
   sky.update(loop.simTime, stage.camera.position);
   aurora.update(loop.simTime, stage.camera.position);
+  vista.update(stage.camera.position);
   pipeline.update(dt, loop.simTime, IDLE_FX, 'running');
   pipeline.render();
 }

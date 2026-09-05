@@ -11,10 +11,10 @@ export const PALETTE = {
   ink: 0x14122b,
   inkCss: '#14122b',
 
-  // Sky
-  skyZenith: 0x2e6df6,
-  skyMid: 0x43b6ff,
-  skyHorizon: 0xaef4ff,
+  // Sky — sampled from the key art (keyart-vista.png), not invented.
+  skyZenith: 0x0152af,
+  skyMid: 0x0477c9,
+  skyHorizon: 0xd3dfed,
   sunCore: 0xfff3b0,
   sunFlare: 0xffd23f,
   cloudShade: 0xb8e0f5,
@@ -63,15 +63,16 @@ export const PALETTE = {
   uiWarn: 0xff3d7f,
   uiWarnCss: '#ff3d7f',
 
-  // Drift Fox — 街机雪原 key-art prop colors. Blender/AI props carry only
-  // semantic material names; these are the single source of truth.
-  snowWhite: 0xf6fbff,
+  // Drift Fox — 街机雪原 key-art prop colors (sampled from keyart-vista.png).
+  // Blender/AI props carry only semantic material names; these are the
+  // single source of truth.
+  snowWhite: 0xf0f3fa,
   rockBlue: 0x7ba0d6,
-  iceCyan: 0x4fb0e0,
-  iceDeep: 0x2e7ec0,
+  iceCyan: 0x70cae8,
+  iceDeep: 0x0875c5,
   iceGlow: 0x8ff4ff,
-  ravineWall: 0x2e6ba8,
-  ravineFloor: 0x0d3352,
+  ravineWall: 0x1774c8,
+  ravineFloor: 0x032e87,
   gold: 0xd9a53a,
   goldDeep: 0x8c6a1f,
   /** Direction TOWARD the sun (normalize before use). Shared by sky, toon lighting, water spec. */

@@ -47,8 +47,9 @@ void main() {
   float envelope = 0.60 + 0.40 * sin(vUv.x * 3.1 + uPhase + uTime * 0.06);
   // Fine vertical rays — texture only, never blocks.
   float rays = 0.92 + 0.08 * sin(vUv.x * 220.0 + uPhase * 7.0 + uTime * 0.4);
-  // Deep teal -> green drift along the ribbon.
-  vec3 teal = vec3(0.05, 0.85, 0.70);
+  // Deep teal -> green drift along the ribbon (aurora hue sampled from the
+  // key art: #0bbdcd core).
+  vec3 teal = vec3(0.04, 0.74, 0.80);
   vec3 green = vec3(0.22, 1.00, 0.38);
   vec3 col = mix(teal, green, 0.5 + 0.5 * sin(vUv.x * 3.0 + uPhase + uTime * 0.05));
   float alpha = curtain * envelope * rays * 0.42;
