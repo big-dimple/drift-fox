@@ -67,41 +67,52 @@ interface RibbonDef {
   readonly phase: number;
 }
 
-/** Three parallax curtains sweeping across the forward (+Z) sky. */
+/** Three parallax curtains; each is repeated at three compass headings so
+ * the sky never runs out of aurora no matter which way the fox turns. */
 const RIBBONS: readonly RibbonDef[] = [
   { width: 3800, height: 260, pos: [-350, 820, 1500], rotY: 0.10, tilt: -0.12, roll: 0.10, phase: 0.0 },
   { width: 2800, height: 190, pos: [600, 980, 1850], rotY: -0.22, tilt: -0.10, roll: -0.07, phase: 2.3 },
   { width: 2000, height: 130, pos: [-150, 1120, 2150], rotY: 0.05, tilt: -0.08, roll: 0.05, phase: 4.1 },
 ];
+const HEADING_COPIES = 3;
 
 export function createAurora(): Aurora {
   const group = new THREE.Group();
   group.name = 'aurora';
   const materials: THREE.ShaderMaterial[] = [];
   for (const def of RIBBONS) {
-    const material = new THREE.ShaderMaterial({
-      name: 'AuroraRibbon',
-      uniforms: {
-        uTime: { value: 0 },
-        uPhase: { value: def.phase },
-      },
-      vertexShader,
-      fragmentShader,
-      transparent: true,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false,
-      side: THREE.DoubleSide,
-    });
-    const ribbon = new THREE.Mesh(new THREE.PlaneGeometry(def.width, def.height, 96, 8), material);
-    ribbon.position.set(def.pos[0], def.pos[1], def.pos[2]);
-    ribbon.rotation.order = 'YXZ';
-    ribbon.rotation.y = def.rotY;
-    ribbon.rotation.x = def.tilt;
-    ribbon.rotation.z = def.roll;
-    ribbon.frustumCulled = false;
-    ribbon.renderOrder = -500; // over the sky dome (renderOrder -1000), under the clouds
-    group.add(ribbon);
-    materials.push(material);
+    for (let copy = 0; copy < HEADING_COPIES; copy++) {
+      const a = (copy * 2 * Math.PI) / HEADING_COPIES;
+      const cos = Math.cos(a);
+      const sin = Math.sin(a);
+      const material = new THREE.ShaderMaterial({
+        name: 'AuroraRibbon',
+        uniforms: {
+          uTime: { value: 0 },
+          uPhase: { value: def.phase + copy * 1.7 },
+        },
+        vertexShader,
+        fragmentShader,
+        transparent: true,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+      });
+      const ribbon = new THREE.Mesh(new THREE.PlaneGeometry(def.width, def.height, 96, 8), material);
+      ribbon.position.set(
+        def.pos[0] * cos + def.pos[2] * sin,
+        def.pos[1],
+        -def.pos[0] * sin + def.pos[2] * cos,
+      );
+      ribbon.rotation.order = 'YXZ';
+      ribbon.rotation.y = def.rotY + a;
+      ribbon.rotation.x = def.tilt;
+      ribbon.rotation.z = def.roll;
+      ribbon.frustumCulled = false;
+      ribbon.renderOrder = -500; // over the sky dome (renderOrder -1000), under the clouds
+      group.add(ribbon);
+      materials.push(material);
+    }
   }
   return {
     object: group,

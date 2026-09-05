@@ -186,6 +186,20 @@ async function capture(browser, options) {
         }
         window.__harness.advance(0.55);
       });
+    } else if (options.pose === 'closeup') {
+      // Art review: fox running at cruise, camera parked at its front-left.
+      await page.evaluate(() => window.__harness.advance(2.0));
+      await page.evaluate(() => window.__harness.view('closeup'));
+      await page.evaluate(() => window.__harness.advance(0.5));
+    } else if (options.pose === 'closeup-drift') {
+      await page.evaluate(() => window.__harness.drive(0.9, true, 3));
+      await page.evaluate(() => window.__harness.advance(2.0));
+      await page.evaluate(() => window.__harness.view('closeup'));
+      await page.evaluate(() => window.__harness.advance(0.5));
+    } else if (options.pose === 'turn') {
+      // Hard non-drift turn: the vista dome must show no edge at any heading.
+      await page.evaluate(() => window.__harness.drive(1, false, 4));
+      await page.evaluate(() => window.__harness.advance(3.0));
     }
     await page.waitForTimeout(options.settleMs);
     const label = options.mobile ? 'mobile' : 'desktop';

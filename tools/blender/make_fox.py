@@ -1,0 +1,374 @@
+"""
+make_fox.py — build the SKINNED arctic fox and export GLB.
+
+Run headless:  blender --background --python tools/blender/make_fox.py
+
+The fox is one continuous skinned mesh (tube-built: trunk, head, ears, four
+3-joint legs, bushy tail) bound to a programmatic armature — no separate
+primitive parts, no "shoe" paw blocks; paws are the dark tapered ends of the
+leg tubes themselves. Vertex weights are hand-assigned per ring with smooth
+blends across joints, so the 60 Hz code-driven bone posing deforms the
+surface cleanly.
+
+Skeleton (all drivable from code, three.js getObjectByName):
+  pelvis -> chest -> neck -> head
+  pelvis -> tail_1 -> tail_2 -> tail_3
+  chest  -> f{l,r}_shoulder -> f{l,r}_forearm -> f{l,r}_paw
+  pelvis -> r{l,r}_thigh -> r{l,r}_shin -> r{l,r}_paw
+
+Conventions: fox faces -Y in Blender (becomes glTF +Z = game heading 0),
+origin at the ground point under the body center, glTF +Y up.
+Materials are semantic labels only (fox_body / fox_shade / fox_dark); the
+game maps them to PALETTE colors and the toon shader.
+
+Also renders turntable previews to shots/fox-turntable-*.png for art review.
+"""
+import math
+from pathlib import Path
+
+import bpy
+
+ROOT = Path(__file__).resolve().parents[2]
+OUT = ROOT / "src" / "assets" / "models" / "fox.glb"
+SHOTS = ROOT / "shots"
+
+V3 = tuple[float, float, float]
+
+MAT_BODY = 0
+MAT_SHADE = 1
+MAT_DARK = 2
+
+
+def v_add(a: V3, b: V3) -> V3: return (a[0] + b[0], a[1] + b[1], a[2] + b[2])
+def v_sub(a: V3, b: V3) -> V3: return (a[0] - b[0], a[1] - b[1], a[2] - b[2])
+def v_scale(a: V3, s: float) -> V3: return (a[0] * s, a[1] * s, a[2] * s)
+def v_cross(a: V3, b: V3) -> V3:
+    return (a[1] * b[2] - a[2] * b[1],
+            a[2] * b[0] - a[0] * b[2],
+            a[0] * b[1] - a[1] * b[0])
+def v_norm(a: V3) -> V3:
+    n = math.sqrt(a[0] * a[0] + a[1] * a[1] + a[2] * a[2]) or 1.0
+    return (a[0] / n, a[1] / n, a[2] / n)
+
+
+class Ring:
+    """One cross-section of a tube: center, radii, bone weights, material."""
+    __slots__ = ("c", "rx", "rz", "w", "mat")
+
+    def __init__(self, c: V3, rx: float, rz: float,
+                 w: list[tuple[str, float]], mat: int = MAT_BODY):
+        self.c = c
+        self.rx = rx
+        self.rz = rz
+        self.w = w
+        self.mat = mat
+
+
+class MeshBuilder:
+    """Accumulates elliptical tubes into one mesh with per-vertex weights
+    and per-face material indices. Flat-shaded by construction (each ring
+    segment is its own faceted strip)."""
+
+    def __init__(self) -> None:
+        self.verts: list[V3] = []
+        self.weights: list[list[tuple[str, float]]] = []
+        self.faces: list[tuple[int, ...]] = []
+        self.face_mats: list[int] = []
+
+    def add_tube(self, rings: list[Ring], sides: int,
+                 mat_fn=None, cap_start: bool = True, cap_end: bool = True) -> None:
+        n = len(rings)
+        base = len(self.verts)
+        for i, ring in enumerate(rings):
+            prev_c = rings[max(0, i - 1)].c
+            next_c = rings[min(n - 1, i + 1)].c
+            t = v_norm(v_sub(next_c, prev_c))
+            ref = (0.0, 0.0, 1.0) if abs(t[2]) < 0.9 else (1.0, 0.0, 0.0)
+            s = v_norm(v_cross(ref, t))
+            v = v_cross(t, s)
+            for k in range(sides):
+                a = 2.0 * math.pi * k / sides
+                p = v_add(ring.c,
+                          v_add(v_scale(s, math.cos(a) * ring.rx),
+                                v_scale(v, math.sin(a) * ring.rz)))
+                self.verts.append(p)
+                self.weights.append(ring.w)
+
+        def ring_mat(i: int, k: int) -> int:
+            if mat_fn is not None:
+                return mat_fn(i, k, sides)
+            return rings[i].mat
+
+        for i in range(n - 1):
+            for k in range(sides):
+                k2 = (k + 1) % sides
+                r0 = base + i * sides
+                r1 = base + (i + 1) * sides
+                self.faces.append((r0 + k, r0 + k2, r1 + k2))
+                self.face_mats.append(ring_mat(i, k))
+                self.faces.append((r0 + k, r1 + k2, r1 + k))
+                self.face_mats.append(ring_mat(i, k))
+        if cap_start:
+            ci = len(self.verts)
+            self.verts.append(rings[0].c)
+            self.weights.append(rings[0].w)
+            for k in range(sides):
+                self.faces.append((ci, base + (k + 1) % sides, base + k))
+                self.face_mats.append(ring_mat(0, k))
+        if cap_end:
+            ci = len(self.verts)
+            self.verts.append(rings[-1].c)
+            self.weights.append(rings[-1].w)
+            r = base + (n - 1) * sides
+            for k in range(sides):
+                self.faces.append((ci, r + k, r + (k + 1) % sides))
+                self.face_mats.append(ring_mat(n - 2, k))
+
+
+# ---------------------------------------------------------------------------
+# Skeleton (Blender coords: fox faces -Y, Z up)
+# ---------------------------------------------------------------------------
+
+# name -> (head, tail, parent)
+BONES: dict[str, tuple[V3, V3, str | None]] = {
+    "pelvis": ((0, 0.30, 0.60), (0, 0.10, 0.62), None),
+    "chest": ((0, 0.10, 0.62), (0, -0.20, 0.66), "pelvis"),
+    "neck": ((0, -0.42, 0.72), (0, -0.58, 0.82), "chest"),
+    "head": ((0, -0.58, 0.82), (0, -0.78, 0.90), "neck"),
+    "tail_1": ((0, 0.42, 0.64), (0, 0.62, 0.70), "pelvis"),
+    "tail_2": ((0, 0.62, 0.70), (0, 0.84, 0.74), "tail_1"),
+    "tail_3": ((0, 0.84, 0.74), (0, 1.04, 0.70), "tail_2"),
+}
+for s, sx in (("l", 1.0), ("r", -1.0)):
+    BONES[f"f{s}_shoulder"] = ((sx * 0.16, -0.26, 0.52), (sx * 0.16, -0.26, 0.30), "chest")
+    BONES[f"f{s}_forearm"] = ((sx * 0.16, -0.26, 0.30), (sx * 0.16, -0.25, 0.12), f"f{s}_shoulder")
+    BONES[f"f{s}_paw"] = ((sx * 0.16, -0.25, 0.12), (sx * 0.16, -0.28, 0.02), f"f{s}_forearm")
+    BONES[f"r{s}_thigh"] = ((sx * 0.15, 0.32, 0.56), (sx * 0.16, 0.42, 0.34), "pelvis")
+    BONES[f"r{s}_shin"] = ((sx * 0.16, 0.42, 0.34), (sx * 0.16, 0.34, 0.15), f"r{s}_thigh")
+    BONES[f"r{s}_paw"] = ((sx * 0.16, 0.34, 0.15), (sx * 0.16, 0.40, 0.03), f"r{s}_shin")
+
+
+def W(*pairs: tuple[str, float]) -> list[tuple[str, float]]:
+    return list(pairs)
+
+
+# ---------------------------------------------------------------------------
+# Geometry
+# ---------------------------------------------------------------------------
+
+def belly_mat(i: int, k: int, sides: int) -> int:
+    """Trunk: lower third of the circumference reads as shaded belly."""
+    a = 2.0 * math.pi * (k + 0.5) / sides
+    return MAT_SHADE if math.sin(a) < -0.35 else MAT_BODY
+
+
+def build_mesh() -> bpy.types.Object:
+    mb = MeshBuilder()
+
+    # Trunk: rump tip -> neck. Deep chest, low-slung; belly shading via
+    # sector rule.
+    mb.add_tube([
+        Ring((0, 0.60, 0.64), 0.10, 0.13, W(("pelvis", 1.0))),
+        Ring((0, 0.45, 0.62), 0.19, 0.23, W(("pelvis", 1.0))),
+        Ring((0, 0.25, 0.60), 0.22, 0.26, W(("pelvis", 0.7), ("chest", 0.3))),
+        Ring((0, 0.05, 0.61), 0.215, 0.27, W(("pelvis", 0.3), ("chest", 0.7))),
+        Ring((0, -0.15, 0.64), 0.215, 0.28, W(("chest", 1.0))),
+        Ring((0, -0.32, 0.69), 0.19, 0.25, W(("chest", 0.7), ("neck", 0.3))),
+        Ring((0, -0.46, 0.76), 0.15, 0.18, W(("chest", 0.3), ("neck", 0.7))),
+        Ring((0, -0.55, 0.81), 0.12, 0.135, W(("neck", 1.0))),
+    ], sides=8, mat_fn=belly_mat)
+
+    # Head: back of skull -> nose tip, carried low in line with the back.
+    # Last ring is the dark nose.
+    mb.add_tube([
+        Ring((0, -0.58, 0.86), 0.12, 0.13, W(("neck", 0.4), ("head", 0.6))),
+        Ring((0, -0.68, 0.90), 0.135, 0.128, W(("head", 1.0))),
+        Ring((0, -0.78, 0.91), 0.11, 0.11, W(("head", 1.0))),
+        Ring((0, -0.86, 0.89), 0.075, 0.075, W(("head", 1.0))),
+        Ring((0, -0.96, 0.87), 0.062, 0.055, W(("head", 1.0))),
+        Ring((0, -1.05, 0.86), 0.042, 0.038, W(("head", 1.0))),
+        Ring((0, -1.12, 0.855), 0.022, 0.022, W(("head", 1.0)), MAT_DARK),
+    ], sides=8)
+
+    # Cheek ruffs: small outward-down tufts at the jaw line.
+    for sx in (1.0, -1.0):
+        mb.add_tube([
+            Ring((sx * 0.10, -0.72, 0.86), 0.06, 0.055, W(("head", 1.0))),
+            Ring((sx * 0.145, -0.76, 0.84), 0.045, 0.04, W(("head", 1.0))),
+            Ring((sx * 0.175, -0.79, 0.825), 0.01, 0.01, W(("head", 1.0))),
+        ], sides=5)
+
+    # Ears: short, wide-based triangles, set wide and tilted outward,
+    # dark tip.
+    for sx in (1.0, -1.0):
+        mb.add_tube([
+            Ring((sx * 0.115, -0.62, 0.93), 0.078, 0.05, W(("head", 1.0))),
+            Ring((sx * 0.165, -0.615, 1.0), 0.06, 0.038, W(("head", 1.0))),
+            Ring((sx * 0.20, -0.61, 1.05), 0.008, 0.008, W(("head", 1.0)), MAT_DARK),
+        ], sides=5)
+
+    # Front legs: thick and short (fox, not deer); paw = dark tapered tube
+    # end. No separate foot geometry.
+    for s, sx in (("l", 1.0), ("r", -1.0)):
+        sh, fo, pa = f"f{s}_shoulder", f"f{s}_forearm", f"f{s}_paw"
+        mb.add_tube([
+            Ring((sx * 0.16, -0.26, 0.54), 0.075, 0.075, W((sh, 1.0))),
+            Ring((sx * 0.165, -0.26, 0.42), 0.068, 0.068, W((sh, 1.0))),
+            Ring((sx * 0.165, -0.25, 0.30), 0.056, 0.056, W((sh, 0.4), (fo, 0.6))),
+            Ring((sx * 0.165, -0.26, 0.19), 0.048, 0.048, W((fo, 1.0))),
+            Ring((sx * 0.165, -0.27, 0.115), 0.043, 0.043, W((fo, 0.4), (pa, 0.6))),
+            Ring((sx * 0.165, -0.29, 0.05), 0.055, 0.045, W((pa, 1.0)), MAT_DARK),
+            Ring((sx * 0.165, -0.32, 0.015), 0.032, 0.024, W((pa, 1.0)), MAT_DARK),
+        ], sides=6)
+
+    # Rear legs: muscular thigh, hock S-curve, dark tapered paw.
+    for s, sx in (("l", 1.0), ("r", -1.0)):
+        th, sn, pa = f"r{s}_thigh", f"r{s}_shin", f"r{s}_paw"
+        mb.add_tube([
+            Ring((sx * 0.15, 0.30, 0.60), 0.09, 0.105, W((th, 1.0))),
+            Ring((sx * 0.16, 0.37, 0.47), 0.08, 0.085, W((th, 1.0))),
+            Ring((sx * 0.165, 0.42, 0.34), 0.06, 0.06, W((th, 0.5), (sn, 0.5))),
+            Ring((sx * 0.165, 0.37, 0.22), 0.05, 0.05, W((sn, 1.0))),
+            Ring((sx * 0.165, 0.34, 0.145), 0.044, 0.044, W((sn, 0.5), (pa, 0.5))),
+            Ring((sx * 0.165, 0.37, 0.07), 0.052, 0.042, W((pa, 1.0)), MAT_DARK),
+            Ring((sx * 0.165, 0.41, 0.015), 0.03, 0.024, W((pa, 1.0)), MAT_DARK),
+        ], sides=6)
+
+    # Tail: oversized and bushy, carried low with a drooping tip.
+    mb.add_tube([
+        Ring((0, 0.46, 0.64), 0.10, 0.10, W(("pelvis", 0.4), ("tail_1", 0.6))),
+        Ring((0, 0.62, 0.70), 0.15, 0.15, W(("tail_1", 1.0))),
+        Ring((0, 0.80, 0.74), 0.185, 0.185, W(("tail_1", 0.4), ("tail_2", 0.6))),
+        Ring((0, 0.96, 0.74), 0.19, 0.19, W(("tail_2", 1.0))),
+        Ring((0, 1.10, 0.70), 0.155, 0.155, W(("tail_2", 0.4), ("tail_3", 0.6)), MAT_SHADE),
+        Ring((0, 1.21, 0.64), 0.10, 0.10, W(("tail_3", 1.0)), MAT_SHADE),
+        Ring((0, 1.29, 0.58), 0.035, 0.035, W(("tail_3", 1.0)), MAT_SHADE),
+    ], sides=8)
+
+    mesh = bpy.data.meshes.new("fox")
+    mesh.from_pydata(mb.verts, [], mb.faces)
+    mesh.update()
+
+    body = make_material("fox_body", (0.97, 0.98, 1.0))
+    shade = make_material("fox_shade", (0.85, 0.91, 0.97))
+    dark = make_material("fox_dark", (0.17, 0.20, 0.27))
+    mesh.materials.append(body)
+    mesh.materials.append(shade)
+    mesh.materials.append(dark)
+    for poly, mi in zip(mesh.polygons, mb.face_mats):
+        poly.material_index = mi
+        poly.use_smooth = False
+
+    obj = bpy.data.objects.new("fox", mesh)
+    bpy.context.collection.objects.link(obj)
+
+    # Vertex groups: exact per-ring weights, normalized.
+    groups: dict[str, bpy.types.VertexGroup] = {}
+    for vi, ws in enumerate(mb.weights):
+        total = sum(w for _, w in ws) or 1.0
+        for bone, w in ws:
+            vg = groups.get(bone)
+            if vg is None:
+                vg = obj.vertex_groups.new(name=bone)
+                groups[bone] = vg
+            vg.add([vi], w / total, "REPLACE")
+    return obj
+
+
+def make_material(name: str, rgb: V3) -> bpy.types.Material:
+    mat = bpy.data.materials.new(name)
+    mat.use_nodes = True
+    bsdf = mat.node_tree.nodes["Principled BSDF"]
+    bsdf.inputs["Base Color"].default_value = (*rgb, 1.0)
+    bsdf.inputs["Roughness"].default_value = 0.9
+    bsdf.inputs["Metallic"].default_value = 0.0
+    return mat
+
+
+def build_armature() -> bpy.types.Object:
+    arm_data = bpy.data.armatures.new("fox_rig")
+    arm = bpy.data.objects.new("fox_rig", arm_data)
+    bpy.context.collection.objects.link(arm)
+    bpy.context.view_layer.objects.active = arm
+    bpy.ops.object.mode_set(mode="EDIT")
+    bones: dict[str, bpy.types.EditBone] = {}
+    for name, (head, tail, parent) in BONES.items():
+        eb = arm_data.edit_bones.new(name)
+        eb.head = head
+        eb.tail = tail
+        bones[name] = eb
+    for name, (_, _, parent) in BONES.items():
+        if parent is not None:
+            bones[name].parent = bones[parent]
+    bpy.ops.object.mode_set(mode="OBJECT")
+    return arm
+
+
+def build() -> None:
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    fox = build_mesh()
+    arm = build_armature()
+    fox.parent = arm
+    mod = fox.modifiers.new("armature", "ARMATURE")
+    mod.object = arm
+
+    OUT.parent.mkdir(parents=True, exist_ok=True)
+    bpy.ops.export_scene.gltf(filepath=str(OUT), export_format="GLB",
+                              export_yup=True, export_apply=True)
+    print(f"fox exported -> {OUT} ({len(fox.data.vertices)} verts, "
+          f"{len(fox.data.polygons)} faces, {len(BONES)} bones)")
+
+
+def turntable() -> None:
+    """Rest-pose preview renders (Cycles CPU, low samples) for art review."""
+    import mathutils
+
+    scene = bpy.context.scene
+    scene.render.engine = "CYCLES"
+    scene.cycles.samples = 24
+    scene.cycles.use_denoising = False
+    scene.render.resolution_x = 640
+    scene.render.resolution_y = 640
+    world = bpy.data.worlds.new("preview")
+    world.use_nodes = True
+    world.node_tree.nodes["Background"].inputs[0].default_value = (0.75, 0.82, 0.92, 1.0)
+    scene.world = world
+
+    bpy.ops.object.light_add(type="SUN", location=(0, 0, 4))
+    sun = bpy.context.active_object
+    sun.rotation_euler = (math.radians(35), math.radians(-20), 0)
+    sun.data.energy = 3.5
+
+    bpy.ops.mesh.primitive_plane_add(size=20, location=(0, 0, -0.001))
+    ground = bpy.context.active_object
+    gmat = make_material("preview_ground", (0.55, 0.62, 0.72))
+    ground.data.materials.append(gmat)
+
+    bpy.ops.object.camera_add()
+    cam = bpy.context.active_object
+    scene.camera = cam
+
+    def look_at(target: V3) -> None:
+        d = mathutils.Vector(target) - cam.location
+        cam.rotation_euler = d.to_track_quat("-Z", "Y").to_euler()
+
+    views = {
+        "front": (0.0, -2.4, 0.8),
+        "side": (2.4, -0.2, 0.75),
+        "back34": (-1.7, 1.9, 1.1),
+    }
+    SHOTS.mkdir(parents=True, exist_ok=True)
+    for name, loc in views.items():
+        cam.location = loc
+        look_at((0, 0, 0.55))
+        scene.render.filepath = str(SHOTS / f"fox-turntable-{name}.png")
+        bpy.ops.render.render(write_still=True)
+        print(f"turntable -> {scene.render.filepath}")
+
+
+if __name__ == "__main__":
+    build()
+    try:
+        turntable()
+    except Exception as exc:
+        print(f"turntable skipped: {exc}")

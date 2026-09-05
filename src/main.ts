@@ -34,7 +34,8 @@ import { RunHud } from './hud/runHud';
 import { TouchInput } from './core/touchInput';
 import { LAYER_ENERGY, markInk } from './contracts';
 import gateUrl from './assets/models/gate.glb?url';
-import vistaUrl from './assets/textures/keyart-vista-plate.png?url';
+import foxUrl from './assets/models/fox.glb?url';
+import vistaUrl from './assets/textures/vista-dome.png?url';
 
 const params = new URLSearchParams(window.location.search);
 const app = document.getElementById('app');
@@ -65,8 +66,8 @@ farGround.rotation.x = -Math.PI / 2;
 farGround.position.y = -0.6;
 stage.scene.add(farGround);
 
-// The far scenery is the key art itself (awaited so harness screenshots are
-// deterministic).
+// The far scenery is the key art wrapped on a full sphere (awaited so
+// harness screenshots are deterministic). World-fixed: it never turns.
 const vistaTexture = await new THREE.TextureLoader().loadAsync(vistaUrl);
 const vista = createVista(vistaTexture);
 stage.scene.add(vista.object);
@@ -86,8 +87,9 @@ const course = createCourse(gateProto);
 stage.scene.add(course.object);
 
 // The fox runs the shared ground truth: the controller owns the world
-// transform (render/collision/progress read it), the mesh mirrors it.
-const fox = new Fox();
+// transform (render/collision/progress read it), the skinned mesh mirrors
+// it. Awaited like the gate so harness screenshots stay deterministic.
+const fox = await Fox.load(foxUrl);
 markInk(fox.object);
 stage.scene.add(fox.object);
 const foxSim = new FoxController(snowfield.height);
@@ -145,16 +147,15 @@ const camTmp = new THREE.Vector3();
 const camGoal = new THREE.Vector3();
 const lookGoal = new THREE.Vector3();
 let cameraSeated = false;
+let viewMode: 'chase' | 'closeup' = 'chase';
 
 function renderFrame(dt: number): void {
   applyTimeOfDay();
   sky.update(loop.simTime, stage.camera.position);
   aurora.update(loop.simTime, stage.camera.position);
+  // The vista dome and aurora are world-fixed: only their position follows
+  // the camera, so turning never slides the scenery.
   vista.update(stage.camera.position);
-  // The vista band and aurora scroll with the fox's heading so the painting
-  // always fills the forward view.
-  vista.object.rotation.y = foxSim.state.heading;
-  aurora.object.rotation.y = foxSim.state.heading;
 
   // Mirror the shared transform, then animate the pose from the sim state.
   const st = foxSim.state;
@@ -178,17 +179,28 @@ function renderFrame(dt: number): void {
   // on the first frame so screenshots are deterministic, then smooth.
   const fx = Math.sin(st.heading);
   const fz = Math.cos(st.heading);
-  const camBaseY = (st.leaping || st.falling)
-    ? snowfield.height(st.position.x, st.position.z) + 2.6
-    : st.position.y + 2.2;
-  camGoal.set(st.position.x - fx * 5.6, camBaseY, st.position.z - fz * 5.6);
+  if (viewMode === 'closeup') {
+    // Art-review closeup: park at the fox's front-left, chest height.
+    const a = st.heading + 2.55;
+    camGoal.set(
+      st.position.x + Math.sin(a) * 2.3,
+      st.position.y + 0.85,
+      st.position.z + Math.cos(a) * 2.3,
+    );
+    lookGoal.set(st.position.x, st.position.y + 0.6, st.position.z);
+  } else {
+    const camBaseY = (st.leaping || st.falling)
+      ? snowfield.height(st.position.x, st.position.z) + 2.6
+      : st.position.y + 2.2;
+    camGoal.set(st.position.x - fx * 5.6, camBaseY, st.position.z - fz * 5.6);
+    lookGoal.set(st.position.x + fx * 7.5, st.position.y + 1.0, st.position.z + fz * 7.5);
+  }
   if (!cameraSeated) {
     stage.camera.position.copy(camGoal);
     cameraSeated = true;
   } else {
     stage.camera.position.lerp(camGoal, 1 - Math.exp(-9 * dt));
   }
-  lookGoal.set(st.position.x + fx * 7.5, st.position.y + 1.0, st.position.z + fz * 7.5);
   camTmp.copy(lookGoal);
   stage.camera.lookAt(camTmp);
 
@@ -249,6 +261,7 @@ interface HarnessBridge {
   drive(steer: number, drift: boolean, seconds: number): void;
   warpToGate(index: number, frost: number, speed?: number): void;
   resetRun(): void;
+  view(mode: 'chase' | 'closeup'): void;
   course(): { gatesPassed: number; falls: number; finished: boolean; raceTime: number };
   fox(): { x: number; z: number; speed: number; frost: number; heading: number; drifting: boolean; leaping: boolean; falling: boolean };
   stats(): Record<string, number | string>;
@@ -273,6 +286,9 @@ if (params.get('harness') === '1') {
     },
     resetRun() {
       director.reset();
+    },
+    view(mode) {
+      viewMode = mode;
     },
     course() {
       return director.run;

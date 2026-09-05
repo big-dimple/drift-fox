@@ -22,6 +22,10 @@ const MATERIAL_MAP: Record<string, ToonOptions> = {
   ice_cyan: { color: PALETTE.iceCyan, rimStrength: 0.3, specThreshold: 0.96 },
   ice_deep: { color: PALETTE.iceDeep, rimStrength: 0.25, specThreshold: 0.96 },
   snow_cap: { color: PALETTE.snowWhite, rimStrength: 0.2 },
+  // The skinned fox (tools/blender/make_fox.py).
+  fox_body: { color: PALETTE.foxWhite, rimStrength: 0.5 },
+  fox_shade: { color: PALETTE.foxShade, rimStrength: 0.4 },
+  fox_dark: { color: PALETTE.foxDark, rimStrength: 0.25 },
 };
 
 export async function loadProp(url: string): Promise<THREE.Object3D> {
