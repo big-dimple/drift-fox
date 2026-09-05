@@ -131,23 +131,25 @@ async function verifyMode(browser, mobile, out) {
 
     // M2 leap/fall contract: full frost at a gate = leap across the chasm;
     // short on frost = the chasm takes the run and the director respawns.
-    await page.evaluate(() => window.__harness.warpToGate(0, 1, 22));
-    await page.evaluate(() => window.__harness.advance(2.5));
+    // Drive the full five-gate run via warps: every gate must leap.
+    for (let g = 0; g < 5; g++) {
+      await page.evaluate((i) => window.__harness.warpToGate(i, 1, 22), g);
+      await page.evaluate(() => window.__harness.advance(2.5));
+      const r = await page.evaluate(() => window.__harness.course());
+      assert.equal(r.gatesPassed, g + 1,
+        `${label}: gate ${g} did not leap with full frost: ${JSON.stringify(r)}`);
+    }
     let run = await page.evaluate(() => window.__harness.course());
-    assert.equal(run.gatesPassed, 1, `${label}: full-frost gate did not leap: ${JSON.stringify(run)}`);
+    assert.equal(run.finished, true, `${label}: run did not finish after gate 5`);
+
+    // Fall path: no frost at a gate = the chasm takes it.
+    await page.evaluate(() => window.__harness.resetRun());
     await page.evaluate(() => window.__harness.warpToGate(0, 0, 22));
     await page.evaluate(() => window.__harness.advance(2.5));
     run = await page.evaluate(() => window.__harness.course());
     assert.ok(run.falls >= 1, `${label}: no-frost crossing did not fall: ${JSON.stringify(run)}`);
-    assert.equal(run.finished, false, `${label}: run finished early`);
     const foxAfterFall = await page.evaluate(() => window.__harness.fox());
     assert.equal(foxAfterFall.falling, false, `${label}: respawn did not restore ground`);
-    // Win path: leap the final gate.
-    await page.evaluate(() => window.__harness.warpToGate(4, 1, 22));
-    await page.evaluate(() => window.__harness.advance(2.5));
-    run = await page.evaluate(() => window.__harness.course());
-    assert.equal(run.gatesPassed, 5, `${label}: final gate did not complete the run: ${JSON.stringify(run)}`);
-    assert.equal(run.finished, true, `${label}: run did not finish after gate 5`);
     console.log(`${label}: leap/fall/finish contract OK ` +
       `(gates ${run.gatesPassed}, falls ${run.falls}, time ${run.raceTime.toFixed(1)}s)`);
 

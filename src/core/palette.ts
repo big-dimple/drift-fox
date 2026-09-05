@@ -71,6 +71,7 @@ export const PALETTE = {
   iceCyan: 0x70cae8,
   iceDeep: 0x0875c5,
   iceGlow: 0x8ff4ff,
+  iceGlowCss: '#8ff4ff',
   ravineWall: 0x1774c8,
   ravineFloor: 0x032e87,
   gold: 0xd9a53a,

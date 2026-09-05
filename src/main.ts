@@ -30,6 +30,8 @@ import { CourseDirector } from './game/courseDirector';
 import { ClawMarks } from './game/clawMarks';
 import { ColdAir } from './game/coldAir';
 import { FrostHud } from './hud/frostHud';
+import { RunHud } from './hud/runHud';
+import { TouchInput } from './core/touchInput';
 import { LAYER_ENERGY, markInk } from './contracts';
 import gateUrl from './assets/models/gate.glb?url';
 import vistaUrl from './assets/textures/keyart-vista-plate.png?url';
@@ -126,6 +128,11 @@ stage.onResize((w, h, pr) => {
 
 const input = new Input();
 const gamepad = new GamepadInput();
+const touch = new TouchInput();
+const runHud = new RunHud(() => director.reset());
+window.addEventListener('keydown', (e) => {
+  if (e.code === 'KeyR') director.reset();
+});
 
 function applyTimeOfDay(): void {
   sky.setTimeOfDay(timeOfDay.current, timeOfDay.blend);
@@ -162,6 +169,8 @@ function renderFrame(dt: number): void {
   });
   if (st.burstFired) pipeline.pulse('boost');
   frostHud.update(st.frost);
+  const run = director.run;
+  runHud.update(run, st.frost >= 0.98, st.falling, touch.active);
 
   // Chase: sit back and above, look ahead of the fox. During leaps and falls
   // the camera holds its height over the GROUND, not the fox — the player
@@ -203,14 +212,21 @@ let driveOverride: { steer: number; drift: boolean; until: number } | null = nul
 const loop = new Loop(
   (dt) => {
     timeOfDay.update(dt);
-    // Keyboard is the baseline; a connected gamepad with live input wins.
-    const kb = input.read(dt, false);
-    gamepad.poll();
-    const pad = gamepad.connected ? gamepad.read(false) : null;
-    const live = pad && (pad.steer !== 0 || pad.drift || pad.flightTrigger) ? pad : kb;
-    const inp = driveOverride && loop.simTime < driveOverride.until
-      ? { throttle: 1, steer: driveOverride.steer, drift: driveOverride.drift, flightTrigger: false, airBrake: false }
-      : live;
+    // Priority: synthetic harness drive > touch > gamepad > keyboard.
+    let inp: { throttle: number; steer: number; drift: boolean; flightTrigger: boolean; airBrake: boolean };
+    if (driveOverride && loop.simTime < driveOverride.until) {
+      inp = { throttle: 1, steer: driveOverride.steer, drift: driveOverride.drift, flightTrigger: false, airBrake: false };
+    } else {
+      const touchState = touch.read();
+      if (touchState) {
+        inp = { throttle: 1, steer: touchState.steer, drift: touchState.drift, flightTrigger: false, airBrake: false };
+      } else {
+        gamepad.poll();
+        const pad = gamepad.connected ? gamepad.read(false) : null;
+        const kb = input.read(dt, false);
+        inp = pad && (pad.steer !== 0 || pad.drift || pad.flightTrigger) ? pad : kb;
+      }
+    }
     foxSim.step(dt, inp);
     director.update(dt);
     clawMarks.update(dt, foxSim.state.position.x, foxSim.state.position.z,
