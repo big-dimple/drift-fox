@@ -38,15 +38,35 @@ function smooth01(x: number): number {
   return c * c * (3 - 2 * c);
 }
 
+/**
+ * The chasm the course leaps: a long crack across the field, slightly
+ * organic. Shared ground truth — the renderer displaces the snow mesh by
+ * the same function the sim reads, so the fox falls exactly where the
+ * player sees the gap.
+ */
+export function chasmZ(x: number): number {
+  return 40 + 18 * Math.sin(x * 0.008) + 6 * Math.sin(x * 0.023 + 1.7);
+}
+
+const CHASM_HALF_W = 9;
+const CHASM_X_MIN = -290;
+const CHASM_X_MAX = 300;
+
+function chasmDepth(x: number, z: number): number {
+  if (x < CHASM_X_MIN || x > CHASM_X_MAX) return 0;
+  const ends = smooth01((x - CHASM_X_MIN) / 18) * smooth01((CHASM_X_MAX - x) / 18);
+  const d = Math.abs(z - chasmZ(x));
+  if (d > CHASM_HALF_W) return 0;
+  const t = 1 - d / CHASM_HALF_W;
+  return -20 * (t * t * (3 - 2 * t)) * ends;
+}
+
 /** Sim + render shared ground truth. */
 export function snowHeight(x: number, z: number): number {
   const dunes = (valueNoise(x / 16, z / 16) - 0.5) * 1.4 + (valueNoise(x / 52 + 31, z / 52 + 17) - 0.5) * 3.0;
-  // Flatten the test arena (r<~95) and the ravine corridor so the sim runs
-  // on honest ground; dunes live toward the vista ring.
-  const r = Math.hypot(x, z);
-  const arenaMask = 0.12 + 0.88 * smooth01((r - 50) / 45);
-  const ravineMask = smooth01((Math.abs(z - 150) - 12) / 14);
-  return dunes * arenaMask * ravineMask;
+  // Calm the start pad so the spawn reads clean; dunes live everywhere else.
+  const startCalm = 0.25 + 0.75 * smooth01((Math.hypot(x + 280, z + 170) - 20) / 30);
+  return dunes * startCalm + chasmDepth(x, z);
 }
 
 const SNOW_MIN_H = -(0.7 + 1.5);

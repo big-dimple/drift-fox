@@ -22,10 +22,11 @@ import { createAurora } from './render/aurora';
 import { createVista } from './render/vista';
 import { createBackdrop } from './world/backdrop';
 import { createSnowfield } from './world/snowfield';
-import { createTestCourse } from './world/testCourse';
+import { createCourse } from './world/course';
 import { loadProp } from './world/props';
 import { Fox } from './game/fox';
 import { FoxController, FOX_TUNING } from './game/foxController';
+import { CourseDirector } from './game/courseDirector';
 import { ClawMarks } from './game/clawMarks';
 import { ColdAir } from './game/coldAir';
 import { FrostHud } from './hud/frostHud';
@@ -51,11 +52,11 @@ stage.scene.add(aurora.object);
 const snowfield = createSnowfield();
 stage.scene.add(snowfield.object);
 
-// A vast flat apron carries the snowfield out to the horizon so the vista
-// band never shows a gap under the painting's ice line. Color sampled from
-// the painting's far field.
+// A vast ring apron carries the snowfield out to the horizon so the vista
+// band never shows a gap under the painting's ice line — a ring, not a disc,
+// so it never paves over the chasm. Color sampled from the painting's field.
 const farGround = new THREE.Mesh(
-  new THREE.CircleGeometry(4200, 48),
+  new THREE.RingGeometry(455, 4200, 48),
   createToonMaterial({ color: 0x9fc8e6, rimStrength: 0.2 }),
 );
 farGround.rotation.x = -Math.PI / 2;
@@ -68,14 +69,19 @@ const vistaTexture = await new THREE.TextureLoader().loadAsync(vistaUrl);
 const vista = createVista(vistaTexture);
 stage.scene.add(vista.object);
 
-// Near/mid scenery: glowing ravine, scattered ice shards.
+// Near/mid scenery: scattered ice shards.
 const backdrop = createBackdrop();
 stage.scene.add(backdrop.object);
 
-// M1 proving ground: stadium loop of ice pylons (two straights, two
-// hairpins) inside the arena.
-const testCourse = createTestCourse(snowfield.height);
-stage.scene.add(testCourse);
+// The golden gate proto — first asset off the Blender pipeline. Awaited so
+// harness screenshots are deterministic. The course clones it five times
+// onto the chasm crossings.
+const gateProto = await loadProp(gateUrl);
+markInk(gateProto);
+
+// The M2 run: serpentine course, chasm rims, five gates.
+const course = createCourse(gateProto);
+stage.scene.add(course.object);
 
 // The fox runs the shared ground truth: the controller owns the world
 // transform (render/collision/progress read it), the mesh mirrors it.
@@ -83,21 +89,21 @@ const fox = new Fox();
 markInk(fox.object);
 stage.scene.add(fox.object);
 const foxSim = new FoxController(snowfield.height);
-fox.object.position.copy(foxSim.state.position);
 const clawMarks = new ClawMarks();
 stage.scene.add(clawMarks.object);
 const coldAir = new ColdAir();
 stage.scene.add(coldAir.object);
 const frostHud = new FrostHud();
 
-// The golden gate floats over the decorative ravine beyond the arena berm —
-// the key art's focal point and the first asset off the Blender pipeline.
-// Awaited so harness screenshots are deterministic.
-const gate = await loadProp(gateUrl);
-markInk(gate);
-gate.scale.setScalar(1.8);
-gate.position.set(-26, 2.0, 158);
-stage.scene.add(gate);
+const director = new CourseDirector(course, foxSim, {
+  onLeap: () => pipeline.pulse('launch'),
+  onLand: () => pipeline.pulse('gate'),
+  onFall: () => pipeline.pulse('defeat'),
+  onRespawn: () => pipeline.pulse('ready'),
+  onFinish: () => pipeline.pulse('finish'),
+});
+director.reset();
+fox.object.position.copy(foxSim.state.position);
 
 // Emissive ravine rims live on the shared energy layer; the beauty camera
 // must see them too (the bloom composer masks the layer itself per frame).
@@ -138,6 +144,10 @@ function renderFrame(dt: number): void {
   sky.update(loop.simTime, stage.camera.position);
   aurora.update(loop.simTime, stage.camera.position);
   vista.update(stage.camera.position);
+  // The vista band and aurora scroll with the fox's heading so the painting
+  // always fills the forward view.
+  vista.object.rotation.y = foxSim.state.heading;
+  aurora.object.rotation.y = foxSim.state.heading;
 
   // Mirror the shared transform, then animate the pose from the sim state.
   const st = foxSim.state;
@@ -147,15 +157,22 @@ function renderFrame(dt: number): void {
     speed01: Math.min(1, st.speed / FOX_TUNING.boostSpeed),
     lateralG01: st.lateralG / 30,
     drifting: st.drifting,
+    leaping: st.leaping,
+    falling: st.falling,
   });
   if (st.burstFired) pipeline.pulse('boost');
   frostHud.update(st.frost);
 
-  // Chase: sit back and above, look ahead of the fox. Seat instantly on the
-  // first frame so screenshots are deterministic, then smooth.
+  // Chase: sit back and above, look ahead of the fox. During leaps and falls
+  // the camera holds its height over the GROUND, not the fox — the player
+  // sees the gap open beneath the arc (the key art framing). Seat instantly
+  // on the first frame so screenshots are deterministic, then smooth.
   const fx = Math.sin(st.heading);
   const fz = Math.cos(st.heading);
-  camGoal.set(st.position.x - fx * 5.6, st.position.y + 2.2, st.position.z - fz * 5.6);
+  const camBaseY = (st.leaping || st.falling)
+    ? snowfield.height(st.position.x, st.position.z) + 2.6
+    : st.position.y + 2.2;
+  camGoal.set(st.position.x - fx * 5.6, camBaseY, st.position.z - fz * 5.6);
   if (!cameraSeated) {
     stage.camera.position.copy(camGoal);
     cameraSeated = true;
@@ -195,6 +212,7 @@ const loop = new Loop(
       ? { throttle: 1, steer: driveOverride.steer, drift: driveOverride.drift, flightTrigger: false, airBrake: false }
       : live;
     foxSim.step(dt, inp);
+    director.update(dt);
     clawMarks.update(dt, foxSim.state.position.x, foxSim.state.position.z,
       foxSim.state.velocityDir, foxSim.state.speed, foxSim.state.drifting, snowfield.height);
     coldAir.update(dt, foxSim.state.position.x, foxSim.state.position.z,
@@ -213,7 +231,10 @@ interface HarnessBridge {
   render(): void;
   advance(seconds: number): void;
   drive(steer: number, drift: boolean, seconds: number): void;
-  fox(): { x: number; z: number; speed: number; frost: number; heading: number; drifting: boolean };
+  warpToGate(index: number, frost: number, speed?: number): void;
+  resetRun(): void;
+  course(): { gatesPassed: number; falls: number; finished: boolean; raceTime: number };
+  fox(): { x: number; z: number; speed: number; frost: number; heading: number; drifting: boolean; leaping: boolean; falling: boolean };
   stats(): Record<string, number | string>;
 }
 
@@ -231,6 +252,15 @@ if (params.get('harness') === '1') {
     drive(steer: number, drift: boolean, seconds: number) {
       driveOverride = { steer, drift, until: loop.simTime + seconds };
     },
+    warpToGate(index: number, frost: number, speed = 0) {
+      director.debugWarpToGate(index, frost, speed);
+    },
+    resetRun() {
+      director.reset();
+    },
+    course() {
+      return director.run;
+    },
     fox() {
       const st = foxSim.state;
       return {
@@ -240,6 +270,8 @@ if (params.get('harness') === '1') {
         frost: st.frost,
         heading: st.heading,
         drifting: st.drifting,
+        leaping: st.leaping,
+        falling: st.falling,
       };
     },
     stats() {

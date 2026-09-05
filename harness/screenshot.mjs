@@ -129,7 +129,30 @@ async function verifyMode(browser, mobile, out) {
     console.log(`${label}: run/drift/burst contract OK ` +
       `(speed ${fox1.speed.toFixed(1)} -> drift frost ${fox2.frost.toFixed(2)} -> burst ${fox3.speed.toFixed(1)})`);
 
+    // M2 leap/fall contract: full frost at a gate = leap across the chasm;
+    // short on frost = the chasm takes the run and the director respawns.
+    await page.evaluate(() => window.__harness.warpToGate(0, 1, 22));
+    await page.evaluate(() => window.__harness.advance(2.5));
+    let run = await page.evaluate(() => window.__harness.course());
+    assert.equal(run.gatesPassed, 1, `${label}: full-frost gate did not leap: ${JSON.stringify(run)}`);
+    await page.evaluate(() => window.__harness.warpToGate(0, 0, 22));
+    await page.evaluate(() => window.__harness.advance(2.5));
+    run = await page.evaluate(() => window.__harness.course());
+    assert.ok(run.falls >= 1, `${label}: no-frost crossing did not fall: ${JSON.stringify(run)}`);
+    assert.equal(run.finished, false, `${label}: run finished early`);
+    const foxAfterFall = await page.evaluate(() => window.__harness.fox());
+    assert.equal(foxAfterFall.falling, false, `${label}: respawn did not restore ground`);
+    // Win path: leap the final gate.
+    await page.evaluate(() => window.__harness.warpToGate(4, 1, 22));
+    await page.evaluate(() => window.__harness.advance(2.5));
+    run = await page.evaluate(() => window.__harness.course());
+    assert.equal(run.gatesPassed, 5, `${label}: final gate did not complete the run: ${JSON.stringify(run)}`);
+    assert.equal(run.finished, true, `${label}: run did not finish after gate 5`);
+    console.log(`${label}: leap/fall/finish contract OK ` +
+      `(gates ${run.gatesPassed}, falls ${run.falls}, time ${run.raceTime.toFixed(1)}s)`);
+
     // Settle back to a clean run for the beauty shot.
+    await page.evaluate(() => window.__harness.resetRun());
     await page.evaluate(() => window.__harness.drive(0.35, false, 1.2));
     await page.evaluate(() => window.__harness.advance(1.2));
     const output = path.join(out, mobile ? 'smoke-mobile.png' : 'smoke-desktop.png');
@@ -151,6 +174,16 @@ async function capture(browser, options) {
       // read, then keep holding the drift for the shot.
       await page.evaluate(() => window.__harness.drive(0.9, true, 3));
       await page.evaluate(() => window.__harness.advance(2.4));
+    } else if (options.pose === 'leap') {
+      // Warp onto gate 2's approach at speed with full frost, then step in
+      // small increments until the leap is airborne over the chasm.
+      await page.evaluate(() => window.__harness.warpToGate(2, 1, 26));
+      await page.evaluate(() => {
+        for (let i = 0; i < 200 && !window.__harness.fox().leaping; i++) {
+          window.__harness.advance(0.1);
+        }
+        window.__harness.advance(0.55);
+      });
     }
     await page.waitForTimeout(options.settleMs);
     const label = options.mobile ? 'mobile' : 'desktop';

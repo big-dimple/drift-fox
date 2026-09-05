@@ -54,6 +54,6 @@ export class FrostHud {
   update(frost: number): void {
     const v = Math.max(0, Math.min(1, frost));
     this.fill.style.width = `${(v * 100).toFixed(1)}%`;
-    this.rootEl.classList.toggle('full', v >= 1);
+    this.rootEl.classList.toggle('full', v >= 0.98);
   }
 }

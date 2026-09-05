@@ -130,10 +130,12 @@ export class Fox {
 
   /**
    * Drive the pose from the sim state: stride frequency/amplitude scale with
-   * speed, the body rolls into a drift, the tail streams outward. Idle
-   * breathing when nearly stopped. Deterministic in `t`; allocates nothing.
+   * speed, the body rolls into a drift, the tail streams outward. Leaping
+   * tucks the legs and pitches up; falling spreads the legs and drops the
+   * nose. Idle breathing when nearly stopped. Deterministic in `t`;
+   * allocates nothing.
    */
-  update(t: number, run?: { speed01: number; lateralG01: number; drifting: boolean }): void {
+  update(t: number, run?: { speed01: number; lateralG01: number; drifting: boolean; leaping?: boolean; falling?: boolean }): void {
     const speed01 = run?.speed01 ?? 0;
     const lateral = run ? THREE.MathUtils.clamp(run.lateralG01, -1, 1) : 0;
     const stride = 2.2 + speed01 * 7.5;
@@ -142,15 +144,24 @@ export class Fox {
     const breathe = Math.sin(t * 2.2) * 0.012 * (1 - speed01);
     this.bodyGroup.scale.set(1 + breathe, 1 - breathe * 0.6, 1);
     this.bodyGroup.position.y = 0.52 + bob + (run?.drifting ? -0.05 : 0);
-    // Roll into the carve; the key art's 贴地漂移读法.
+    // Roll into the carve; pitch with the leap, nose-drop on the fall.
     this.object.rotation.z = lateral * (run?.drifting ? 0.34 : 0.12);
+    this.object.rotation.x = run?.leaping ? -0.22 : run?.falling ? 0.35 : 0;
     this.headGroup.rotation.y = Math.sin(t * 0.53) * 0.14 * (1 - speed01) + lateral * 0.25;
     this.headGroup.rotation.x = Math.sin(t * 0.71) * 0.05 - 0.02 + speed01 * 0.08;
-    for (const leg of this.legs) {
-      leg.hip.rotation.x = Math.sin(t * stride + leg.phase) * amp;
+    for (let li = 0; li < this.legs.length; li++) {
+      const leg = this.legs[li];
+      if (run?.leaping) {
+        // Tuck: fronts fold back, rears extend — the key art's leap read.
+        leg.hip.rotation.x = li < 2 ? -0.72 : 0.58;
+      } else if (run?.falling) {
+        leg.hip.rotation.x = li < 2 ? 0.5 : -0.5;
+      } else {
+        leg.hip.rotation.x = Math.sin(t * stride + leg.phase) * amp;
+      }
     }
     this.tail.rotation.z = Math.sin(t * 1.1) * 0.08 * (1 - speed01) - lateral * 0.3;
-    this.tail.rotation.x = -0.5 - speed01 * 0.25;
+    this.tail.rotation.x = -0.5 - speed01 * 0.25 + (run?.leaping ? 0.35 : 0);
     this.tailMid.rotation.y = Math.sin(t * 1.7) * 0.14 * (1 - speed01 * 0.5) - lateral * 0.2;
     this.tailMid.rotation.x = Math.sin(t * 0.9 + 1.3) * 0.06;
   }

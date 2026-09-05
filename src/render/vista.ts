@@ -22,12 +22,13 @@ export interface Vista {
 }
 
 const RADIUS = 2600;
-const HEIGHT = 1900;
+const HEIGHT = 2600;
 /** Arc covered by the painting around +Z (radians). */
 const THETA = 2.2;
-/** Vertical window of the plate: sky down to just under the horizon glow. */
+/** Vertical window of the plate: sky down to the horizon glow, skipping the
+ * painting's darkest top strokes so the band melts into the dome. */
 const V_OFFSET = 0.50;
-const V_REPEAT = 1 - V_OFFSET;
+const V_REPEAT = 0.97 - V_OFFSET;
 
 export function createVista(texture: THREE.Texture): Vista {
   texture.colorSpace = THREE.NoColorSpace;
@@ -44,7 +45,7 @@ export function createVista(texture: THREE.Texture): Vista {
     depthWrite: false,
   });
   const band = new THREE.Mesh(geometry, material);
-  band.position.y = HEIGHT / 2 - 80; // horizon window tucks below y=0
+  band.position.y = HEIGHT / 2 - 80; // horizon window tucks below y=0, top edge past 44° elevation // horizon window tucks below y=0
   band.renderOrder = -900; // after the sky dome (-1000), before the world
   band.frustumCulled = false;
   const group = new THREE.Group();

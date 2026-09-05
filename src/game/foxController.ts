@@ -5,9 +5,10 @@
  * for a grounded fox: snappier yaw, grip-drift carve):
  *   auto full-speed run; Shift = claws-in grip drift (higher yaw authority,
  *   velocity direction lags heading = readable slip, frost charges);
- *   release = burst of speed (蹬冰); frost is the leap resource (M2 spends
- *   it at gates). Action edges stay in the input contract, physics here
- *   only reads holds. One fox world transform is shared by render,
+ *   release = burst of speed (蹬冰); frost is the leap resource: full at a
+ *   gate = scripted leap over the chasm (no flight physics branch), short
+ *   or off-gate = fall. Action edges stay in the input contract; physics
+ *   here only reads holds. One fox world transform is shared by render,
  *   collision and progress — this controller owns it.
  */
 import * as THREE from 'three';
@@ -27,9 +28,11 @@ export const FOX_TUNING = {
   steerScrub: 0.35, // fraction of |steer| scrubbing speed per second
   frostPerRad: 0.16, // frost per radian of carve yaw at reference speed
   frostRefSpeed: 22,
-  frostDecay: 0.035, // 1/s slow bleed when not drifting
+  frostDecay: 0.005, // 1/s slow bleed when not drifting
   burstMin: 0.25, // min drift charge paying out a burst
-  arenaRadius: 118, // soft snow berm boundary of the M1 test field
+  leapVyBase: 7.6, // m/s vertical pop of the scripted leap
+  leapVyPerSpeed: 0.045, // plus a share of ground speed
+  gravity: 9.8,
 } as const;
 
 export interface FoxState {
@@ -45,6 +48,13 @@ export interface FoxState {
   lateralG: number;
   /** One-frame pulse on drift release (burst fired). */
   burstFired: boolean;
+  /** Scripted leap over a chasm (gate + full frost). */
+  leaping: boolean;
+  leapT: number;
+  /** Lost the chasm: falling until the director respawns the run. */
+  falling: boolean;
+  /** One-frame pulse when a leap lands cleanly. */
+  landed: boolean;
 }
 
 export class FoxController {
@@ -59,21 +69,92 @@ export class FoxController {
     boostRemaining: 0,
     lateralG: 0,
     burstFired: false,
+    leaping: false,
+    leapT: 0,
+    falling: false,
+    landed: false,
   };
 
   private yawRate = 0;
   private driftCharge = 0; // seconds-equivalent of carve paying into the burst
+  private leapVy = 0;
+  private fallVy = 0;
   private readonly groundY: (x: number, z: number) => number;
 
   constructor(groundY: (x: number, z: number) => number) {
     this.groundY = groundY;
-    this.state.position.set(0, groundY(0, 0), -40);
+  }
+
+  /** Place the run (spawn/respawn). */
+  place(x: number, z: number, heading: number): void {
+    const st = this.state;
+    st.position.set(x, this.groundY(x, z), z);
+    st.heading = heading;
+    st.velocityDir = heading;
+    st.speed = 0;
+    st.drifting = false;
+    st.boosting = false;
+    st.boostRemaining = 0;
+    st.leaping = false;
+    st.falling = false;
+    st.landed = false;
+    st.burstFired = false;
+    st.lateralG = 0;
+    this.yawRate = 0;
+    this.driftCharge = 0;
+  }
+
+  /**
+   * Begin the scripted leap (frost spent by the caller). Steering locks;
+   * the arc clears the chasm and lands back on honest ground. Not a flight
+   * physics branch — one ballistic arc, then ground truth resumes.
+   */
+  beginLeap(): void {
+    const st = this.state;
+    st.leaping = true;
+    st.leapT = 0;
+    st.landed = false;
+    this.leapVy = FOX_TUNING.leapVyBase + st.speed * FOX_TUNING.leapVyPerSpeed;
+  }
+
+  /** Begin the fall into the chasm. */
+  beginFall(): void {
+    const st = this.state;
+    st.falling = true;
+    st.drifting = false;
+    st.boosting = false;
+    this.fallVy = 0;
   }
 
   /** One fixed step of ground truth. */
   step(dt: number, input: BoatInput): void {
     const st = this.state;
     st.burstFired = false;
+    st.landed = false;
+
+    if (st.falling) {
+      this.fallVy -= FOX_TUNING.gravity * dt;
+      st.position.y += this.fallVy * dt;
+      st.position.x += Math.sin(st.velocityDir) * st.speed * dt * 0.4;
+      st.position.z += Math.cos(st.velocityDir) * st.speed * dt * 0.4;
+      return;
+    }
+
+    if (st.leaping) {
+      st.leapT += dt;
+      st.position.x += Math.sin(st.heading) * st.speed * dt;
+      st.position.z += Math.cos(st.heading) * st.speed * dt;
+      st.position.y += this.leapVy * dt;
+      this.leapVy -= FOX_TUNING.gravity * dt;
+      const ground = this.groundY(st.position.x, st.position.z);
+      if (this.leapVy < 0 && st.position.y <= ground) {
+        st.position.y = ground;
+        st.leaping = false;
+        st.landed = true;
+        st.velocityDir = st.heading;
+      }
+      return;
+    }
 
     // --- yaw authority -----------------------------------------------------
     const wasDrifting = st.drifting;
@@ -120,16 +201,6 @@ export class FoxController {
     // --- integrate position (shared world transform) ----------------------
     st.position.x += Math.sin(st.velocityDir) * st.speed * dt;
     st.position.z += Math.cos(st.velocityDir) * st.speed * dt;
-
-    // Soft arena boundary: steer back inside the berm ring.
-    const r = Math.hypot(st.position.x, st.position.z);
-    if (r > FOX_TUNING.arenaRadius) {
-      const inward = Math.atan2(-st.position.x, -st.position.z);
-      let pull = inward - st.velocityDir;
-      pull = Math.atan2(Math.sin(pull), Math.cos(pull));
-      st.velocityDir += pull * Math.min(1, 4 * dt);
-      st.heading += pull * Math.min(1, 2 * dt);
-    }
 
     st.position.y = this.groundY(st.position.x, st.position.z);
     st.lateralG = this.yawRate * st.speed;
