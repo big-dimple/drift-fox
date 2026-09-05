@@ -17,17 +17,19 @@ import { TimeOfDayManager } from './core/timeOfDay';
 import { Sky } from './render/sky';
 import { createToonMaterial, setToonTimeOfDay } from './render/toonMaterial';
 import { createPostPipeline } from './render/postPipeline';
+import { PrePass } from './render/prePass';
 import { createAurora } from './render/aurora';
 import { createVista } from './render/vista';
 import { createBackdrop } from './world/backdrop';
 import { createSnowfield } from './world/snowfield';
+import { createTestCourse } from './world/testCourse';
 import { loadProp } from './world/props';
 import { Fox } from './game/fox';
 import { FoxController, FOX_TUNING } from './game/foxController';
 import { ClawMarks } from './game/clawMarks';
 import { ColdAir } from './game/coldAir';
 import { FrostHud } from './hud/frostHud';
-import { LAYER_ENERGY } from './contracts';
+import { LAYER_ENERGY, markInk } from './contracts';
 import gateUrl from './assets/models/gate.glb?url';
 import vistaUrl from './assets/textures/keyart-vista-plate.png?url';
 
@@ -70,9 +72,15 @@ stage.scene.add(vista.object);
 const backdrop = createBackdrop();
 stage.scene.add(backdrop.object);
 
+// M1 proving ground: stadium loop of ice pylons (two straights, two
+// hairpins) inside the arena.
+const testCourse = createTestCourse(snowfield.height);
+stage.scene.add(testCourse);
+
 // The fox runs the shared ground truth: the controller owns the world
 // transform (render/collision/progress read it), the mesh mirrors it.
 const fox = new Fox();
+markInk(fox.object);
 stage.scene.add(fox.object);
 const foxSim = new FoxController(snowfield.height);
 fox.object.position.copy(foxSim.state.position);
@@ -86,6 +94,7 @@ const frostHud = new FrostHud();
 // the key art's focal point and the first asset off the Blender pipeline.
 // Awaited so harness screenshots are deterministic.
 const gate = await loadProp(gateUrl);
+markInk(gate);
 gate.scale.setScalar(1.8);
 gate.position.set(-26, 2.0, 158);
 stage.scene.add(gate);
@@ -102,8 +111,12 @@ stage.camera.position.set(
 );
 stage.camera.lookAt(foxSim.state.position.x, foxSim.state.position.y + 1, foxSim.state.position.z + 8);
 
-const pipeline = createPostPipeline(stage.renderer, stage.scene, stage.camera, null, stage.quality);
-stage.onResize((w, h, pr) => pipeline.setSize(w, h, pr));
+const prePass = new PrePass(4, 4);
+const pipeline = createPostPipeline(stage.renderer, stage.scene, stage.camera, prePass, stage.quality);
+stage.onResize((w, h, pr) => {
+  pipeline.setSize(w, h, pr);
+  prePass.setSize(w * pr, h * pr);
+});
 
 const input = new Input();
 const gamepad = new GamepadInput();
