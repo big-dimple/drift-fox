@@ -26,6 +26,9 @@ const MATERIAL_MAP: Record<string, ToonOptions> = {
   fox_body: { color: PALETTE.foxWhite, rimStrength: 0.5 },
   fox_shade: { color: PALETTE.foxShade, rimStrength: 0.4 },
   fox_dark: { color: PALETTE.foxDark, rimStrength: 0.25 },
+  // Fur shells: undercoat + sparse guard hairs (alpha-discard strands).
+  fox_fur_1: { color: PALETTE.foxWhite, rimStrength: 0.55, furShell: 1 },
+  fox_fur_2: { color: PALETTE.foxShade, rimStrength: 0.45, furShell: 2 },
 };
 
 export async function loadProp(url: string): Promise<THREE.Object3D> {

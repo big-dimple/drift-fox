@@ -43,6 +43,9 @@ export interface ToonOptions {
   emissive?: number; emissiveIntensity?: number;
   /** Multiply the uniform albedo by the geometry's RGB color attribute. */
   vertexColors?: boolean;
+  /** Fur shell layer (0 = off, 1 = under shell, 2 = sparse outer shell):
+   * alpha-discard strand pattern keyed off the tube UVs. */
+  furShell?: number;
 }
 
 /** Palette hex → THREE.Color with NO color-space conversion (verbatim to screen, see header). */
@@ -87,6 +90,7 @@ export function updateToonTimeOfDay(tod: TimeOfDay, blend?: number): void {
 const vertexShader = /* glsl */ `
 varying vec3 vWorldNormal;
 varying vec3 vWorldPos;
+varying vec2 vUv;
 
 #ifdef USE_VERTEX_COLOR
 varying vec3 vVertexColor;
@@ -97,6 +101,7 @@ varying vec3 vVertexColor;
 void main() {
   vec3 transformed = vec3(position);
   vec3 objectNormal = vec3(normal);
+  vUv = uv;
   #include <skinbase_vertex>
   #include <skinnormal_vertex>
   #include <skinning_vertex>
@@ -137,14 +142,25 @@ uniform float uFogBand1;        // distance (m) of the first fog step
 uniform float uFogBand2;        // distance (m) of the second fog step
 uniform float uFogStrength;     // overall fog multiplier
 uniform float uNightBlend;      // 0.0 = day, 1.0 = night
+uniform float uFurShell;        // 0 = solid; 1 = under fur shell; 2 = sparse outer shell
 
 varying vec3 vWorldNormal;
 varying vec3 vWorldPos;
+varying vec2 vUv;
 #ifdef USE_VERTEX_COLOR
 varying vec3 vVertexColor;
 #endif
 
 void main() {
+  // FUR SHELLS — strand discard keyed off tube UVs: fast around the tube
+  // (strand separation), slow along it (strand length). The outer shell is
+  // sparser so the two layers read as undercoat + guard hairs.
+  if (uFurShell > 0.5) {
+    vec2 cell = floor(vUv * vec2(220.0, 26.0));
+    float n = fract(sin(dot(cell, vec2(12.9898, 78.233))) * 43758.5453);
+    float keep = uFurShell > 1.5 ? 0.48 : 0.68;
+    if (n > keep) discard;
+  }
   vec3 N = normalize(vWorldNormal);
   vec3 V = normalize(cameraPosition - vWorldPos); // world-space view dir
   vec3 L = uSunDir;                               // already normalized
@@ -268,6 +284,7 @@ export function createToonMaterial(opts: ToonOptions): THREE.ShaderMaterial {
       uFogBand2: { value: 760.0 },
       uFogStrength: { value: 1.0 },
       uNightBlend: sharedNightBlend,
+      uFurShell: { value: opts.furShell ?? 0 },
     },
     vertexShader,
     fragmentShader,
