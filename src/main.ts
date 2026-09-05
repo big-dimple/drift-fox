@@ -24,6 +24,9 @@ import { createSnowfield } from './world/snowfield';
 import { loadProp } from './world/props';
 import { Fox } from './game/fox';
 import { FoxController, FOX_TUNING } from './game/foxController';
+import { ClawMarks } from './game/clawMarks';
+import { ColdAir } from './game/coldAir';
+import { FrostHud } from './hud/frostHud';
 import { LAYER_ENERGY } from './contracts';
 import gateUrl from './assets/models/gate.glb?url';
 import vistaUrl from './assets/textures/keyart-vista-plate.png?url';
@@ -73,6 +76,11 @@ const fox = new Fox();
 stage.scene.add(fox.object);
 const foxSim = new FoxController(snowfield.height);
 fox.object.position.copy(foxSim.state.position);
+const clawMarks = new ClawMarks();
+stage.scene.add(clawMarks.object);
+const coldAir = new ColdAir();
+stage.scene.add(coldAir.object);
+const frostHud = new FrostHud();
 
 // The golden gate floats over the decorative ravine beyond the arena berm —
 // the key art's focal point and the first asset off the Blender pipeline.
@@ -128,6 +136,7 @@ function renderFrame(dt: number): void {
     drifting: st.drifting,
   });
   if (st.burstFired) pipeline.pulse('boost');
+  frostHud.update(st.frost);
 
   // Chase: sit back and above, look ahead of the fox. Seat instantly on the
   // first frame so screenshots are deterministic, then smooth.
@@ -173,6 +182,10 @@ const loop = new Loop(
       ? { throttle: 1, steer: driveOverride.steer, drift: driveOverride.drift, flightTrigger: false, airBrake: false }
       : live;
     foxSim.step(dt, inp);
+    clawMarks.update(dt, foxSim.state.position.x, foxSim.state.position.z,
+      foxSim.state.velocityDir, foxSim.state.speed, foxSim.state.drifting, snowfield.height);
+    coldAir.update(dt, foxSim.state.position.x, foxSim.state.position.z,
+      foxSim.state.velocityDir, foxSim.state.speed, foxSim.state.drifting, snowfield.height);
   },
   (frameMs) => {
     stage.updatePerf(frameMs);
@@ -221,6 +234,8 @@ if (params.get('harness') === '1') {
         ...stage.stats(),
         activity: input.activitySerial,
         gamepadConnected: gamepad.connected ? 1 : 0,
+        clawMarks: clawMarks.alive,
+        coldAir: coldAir.alive,
       };
     },
   };

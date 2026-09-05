@@ -16,6 +16,7 @@ function parseArgs(argv) {
   const options = {
     mobile: false,
     verifySmoke: false,
+    pose: '',
     out: process.env.SHOT_OUT || path.join(root, 'shots'),
     settleMs: Number(process.env.SHOT_SETTLE_MS || 160),
   };
@@ -23,6 +24,7 @@ function parseArgs(argv) {
     const arg = argv[index];
     if (arg === '--mobile') options.mobile = true;
     else if (arg === '--verify-smoke') options.verifySmoke = true;
+    else if (arg === '--pose') options.pose = argv[++index] ?? '';
     else if (arg === '--out') options.out = path.resolve(root, argv[++index] ?? '');
     else if (arg === '--settle') options.settleMs = Number(argv[++index]);
     else throw new Error(`unknown option: ${arg}`);
@@ -84,11 +86,12 @@ async function renderEvidence(page) {
 async function proveRendered(page, label) {
   let render = null;
   let stats = null;
-  for (let attempt = 0; attempt < 3; attempt++) {
+  // Cold dev-server transforms make the first paint slow; be patient.
+  for (let attempt = 0; attempt < 8; attempt++) {
     render = await renderEvidence(page);
     stats = await page.evaluate(() => window.__harness.stats());
     if (render && render.lumaRange > 8 && Number(stats.calls) > 0) break;
-    await page.waitForTimeout(180);
+    await page.waitForTimeout(250);
   }
   assert.ok(render && render.lumaRange > 8 && Number(stats?.calls) > 0,
     `${label}: renderer remained blank after retries: ${JSON.stringify({ render, stats })}`);
@@ -115,6 +118,9 @@ async function verifyMode(browser, mobile, out) {
     const fox2 = await page.evaluate(() => window.__harness.fox());
     assert.ok(fox2.drifting, `${label}: drift hold did not engage: ${JSON.stringify(fox2)}`);
     assert.ok(fox2.frost > 0.03, `${label}: drift did not charge frost: ${JSON.stringify(fox2)}`);
+    const fx2 = await page.evaluate(() => window.__harness.stats());
+    assert.ok(Number(fx2.clawMarks) > 0, `${label}: drift carved no claw marks`);
+    assert.ok(Number(fx2.coldAir) > 0, `${label}: drift emitted no cold air`);
     await page.evaluate(() => window.__harness.drive(0, false, 2));
     await page.evaluate(() => window.__harness.advance(0.3));
     const fox3 = await page.evaluate(() => window.__harness.fox());
@@ -140,10 +146,17 @@ async function capture(browser, options) {
   mkdirSync(options.out, { recursive: true });
   const { context, page } = await openHarness(browser, options.mobile);
   try {
+    if (options.pose === 'drift') {
+      // Carve hard for a couple of seconds so the claw trail and cold air
+      // read, then keep holding the drift for the shot.
+      await page.evaluate(() => window.__harness.drive(0.9, true, 3));
+      await page.evaluate(() => window.__harness.advance(2.4));
+    }
     await page.waitForTimeout(options.settleMs);
     const label = options.mobile ? 'mobile' : 'desktop';
     const { stats } = await proveRendered(page, label);
-    const output = path.join(options.out, `scene${options.mobile ? '-mobile' : ''}.png`);
+    const name = options.pose ? `scene-${options.pose}` : 'scene';
+    const output = path.join(options.out, `${name}${options.mobile ? '-mobile' : ''}.png`);
     await page.screenshot({ path: output });
     console.log(`${output}: calls=${stats.calls} triangles=${stats.triangles} pixels=${stats.drawingPixels}`);
   } finally {
