@@ -100,6 +100,32 @@ async function verifyMode(browser, mobile, out) {
   const { context, page } = await openHarness(browser, mobile);
   try {
     const { render, stats } = await proveRendered(page, label);
+
+    // The fox must actually run: 2 s of sim puts it near cruise speed and
+    // well down the field.
+    const fox0 = await page.evaluate(() => window.__harness.fox());
+    await page.evaluate(() => window.__harness.advance(2));
+    const fox1 = await page.evaluate(() => window.__harness.fox());
+    assert.ok(fox1.speed > 10, `${label}: fox did not reach running speed: ${JSON.stringify(fox1)}`);
+    assert.ok(Math.abs(fox1.z - fox0.z) > 20, `${label}: fox did not advance: ${JSON.stringify({ fox0, fox1 })}`);
+
+    // Grip drift charges frost; releasing pays out the burst.
+    await page.evaluate(() => window.__harness.drive(1, true, 3));
+    await page.evaluate(() => window.__harness.advance(1.5));
+    const fox2 = await page.evaluate(() => window.__harness.fox());
+    assert.ok(fox2.drifting, `${label}: drift hold did not engage: ${JSON.stringify(fox2)}`);
+    assert.ok(fox2.frost > 0.03, `${label}: drift did not charge frost: ${JSON.stringify(fox2)}`);
+    await page.evaluate(() => window.__harness.drive(0, false, 2));
+    await page.evaluate(() => window.__harness.advance(0.3));
+    const fox3 = await page.evaluate(() => window.__harness.fox());
+    assert.ok(fox3.speed > fox2.speed + 2,
+      `${label}: release burst did not fire: ${JSON.stringify({ fox2, fox3 })}`);
+    console.log(`${label}: run/drift/burst contract OK ` +
+      `(speed ${fox1.speed.toFixed(1)} -> drift frost ${fox2.frost.toFixed(2)} -> burst ${fox3.speed.toFixed(1)})`);
+
+    // Settle back to a clean run for the beauty shot.
+    await page.evaluate(() => window.__harness.drive(0.35, false, 1.2));
+    await page.evaluate(() => window.__harness.advance(1.2));
     const output = path.join(out, mobile ? 'smoke-mobile.png' : 'smoke-desktop.png');
     await page.screenshot({ path: output });
     console.log(`${label}: calls=${stats.calls} triangles=${stats.triangles} ` +

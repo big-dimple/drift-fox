@@ -92,7 +92,7 @@ export function createBackdrop(): Backdrop {
   const ravine = new THREE.Group();
   ravine.name = 'ravine';
   buildRavine(ravine);
-  ravine.position.set(0, 0, 85);
+  ravine.position.set(0, 0, 150);
   ravine.rotation.y = 0.06;
   group.add(ravine);
 

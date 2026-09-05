@@ -17,13 +17,13 @@ import { TimeOfDayManager } from './core/timeOfDay';
 import { Sky } from './render/sky';
 import { createToonMaterial, setToonTimeOfDay } from './render/toonMaterial';
 import { createPostPipeline } from './render/postPipeline';
-import type { PostFxState } from './render/postPipeline';
 import { createAurora } from './render/aurora';
 import { createVista } from './render/vista';
 import { createBackdrop } from './world/backdrop';
 import { createSnowfield } from './world/snowfield';
 import { loadProp } from './world/props';
 import { Fox } from './game/fox';
+import { FoxController, FOX_TUNING } from './game/foxController';
 import { LAYER_ENERGY } from './contracts';
 import gateUrl from './assets/models/gate.glb?url';
 import vistaUrl from './assets/textures/keyart-vista-plate.png?url';
@@ -67,44 +67,38 @@ stage.scene.add(vista.object);
 const backdrop = createBackdrop();
 stage.scene.add(backdrop.object);
 
-// The golden gate floats over the ravine — the key art's focal point and the
-// first asset off the Blender headless pipeline. Awaited so harness
-// screenshots are deterministic.
+// The fox runs the shared ground truth: the controller owns the world
+// transform (render/collision/progress read it), the mesh mirrors it.
+const fox = new Fox();
+stage.scene.add(fox.object);
+const foxSim = new FoxController(snowfield.height);
+fox.object.position.copy(foxSim.state.position);
+
+// The golden gate floats over the decorative ravine beyond the arena berm —
+// the key art's focal point and the first asset off the Blender pipeline.
+// Awaited so harness screenshots are deterministic.
 const gate = await loadProp(gateUrl);
 gate.scale.setScalar(1.8);
-gate.position.set(-26, 2.0, 85);
+gate.position.set(-26, 2.0, 158);
 stage.scene.add(gate);
-
-// The fox, standing on the snow at the origin. Movement physics lands next
-// in M1; the mesh and pose loop come first.
-const fox = new Fox();
-fox.object.position.set(0, snowfield.height(0, 0), 0);
-stage.scene.add(fox.object);
 
 // Emissive ravine rims live on the shared energy layer; the beauty camera
 // must see them too (the bloom composer masks the layer itself per frame).
 stage.camera.layers.enable(LAYER_ENERGY);
 
-// Chase framing (the game's real camera): fox low in frame, the ravine, the
-// floating gate and the painted skyline ahead.
-stage.camera.position.set(1.1, snowfield.height(0, 0) + 1.7, -4.4);
-stage.camera.lookAt(-0.5, 1.0, 10);
+// Chase camera, seeded behind the fox.
+stage.camera.position.set(
+  foxSim.state.position.x,
+  foxSim.state.position.y + 2.2,
+  foxSim.state.position.z - 5.6,
+);
+stage.camera.lookAt(foxSim.state.position.x, foxSim.state.position.y + 1, foxSim.state.position.z + 8);
 
 const pipeline = createPostPipeline(stage.renderer, stage.scene, stage.camera, null, stage.quality);
 stage.onResize((w, h, pr) => pipeline.setSize(w, h, pr));
 
 const input = new Input();
 const gamepad = new GamepadInput();
-
-const IDLE_FX: PostFxState = {
-  boosting: false,
-  flightPhase: 'surface',
-  flightThrust: 0,
-  flightPressure: 0,
-  flightAirBrake: 0,
-  drifting: false,
-  boostCharge: 0,
-};
 
 function applyTimeOfDay(): void {
   sky.setTimeOfDay(timeOfDay.current, timeOfDay.blend);
@@ -113,20 +107,72 @@ function applyTimeOfDay(): void {
 }
 applyTimeOfDay();
 
+const camTmp = new THREE.Vector3();
+const camGoal = new THREE.Vector3();
+const lookGoal = new THREE.Vector3();
+let cameraSeated = false;
+
 function renderFrame(dt: number): void {
   applyTimeOfDay();
   sky.update(loop.simTime, stage.camera.position);
   aurora.update(loop.simTime, stage.camera.position);
   vista.update(stage.camera.position);
-  fox.update(loop.simTime);
-  pipeline.update(dt, loop.simTime, IDLE_FX, 'running');
+
+  // Mirror the shared transform, then animate the pose from the sim state.
+  const st = foxSim.state;
+  fox.object.position.copy(st.position);
+  fox.object.rotation.y = st.heading;
+  fox.update(loop.simTime, {
+    speed01: Math.min(1, st.speed / FOX_TUNING.boostSpeed),
+    lateralG01: st.lateralG / 30,
+    drifting: st.drifting,
+  });
+  if (st.burstFired) pipeline.pulse('boost');
+
+  // Chase: sit back and above, look ahead of the fox. Seat instantly on the
+  // first frame so screenshots are deterministic, then smooth.
+  const fx = Math.sin(st.heading);
+  const fz = Math.cos(st.heading);
+  camGoal.set(st.position.x - fx * 5.6, st.position.y + 2.2, st.position.z - fz * 5.6);
+  if (!cameraSeated) {
+    stage.camera.position.copy(camGoal);
+    cameraSeated = true;
+  } else {
+    stage.camera.position.lerp(camGoal, 1 - Math.exp(-9 * dt));
+  }
+  lookGoal.set(st.position.x + fx * 7.5, st.position.y + 1.0, st.position.z + fz * 7.5);
+  camTmp.copy(lookGoal);
+  stage.camera.lookAt(camTmp);
+
+  pipeline.update(dt, loop.simTime, {
+    boosting: st.boosting,
+    flightPhase: 'surface',
+    flightThrust: 0,
+    flightPressure: Math.min(1, st.speed / FOX_TUNING.boostSpeed),
+    flightAirBrake: 0,
+    drifting: st.drifting,
+    boostCharge: st.frost,
+  }, 'running');
   pipeline.render();
 }
 
 let framesRendered = 0;
+// Synthetic input override for the harness (deterministic gameplay shots
+// and contract assertions). Expires by sim time.
+let driveOverride: { steer: number; drift: boolean; until: number } | null = null;
+
 const loop = new Loop(
   (dt) => {
     timeOfDay.update(dt);
+    // Keyboard is the baseline; a connected gamepad with live input wins.
+    const kb = input.read(dt, false);
+    gamepad.poll();
+    const pad = gamepad.connected ? gamepad.read(false) : null;
+    const live = pad && (pad.steer !== 0 || pad.drift || pad.flightTrigger) ? pad : kb;
+    const inp = driveOverride && loop.simTime < driveOverride.until
+      ? { throttle: 1, steer: driveOverride.steer, drift: driveOverride.drift, flightTrigger: false, airBrake: false }
+      : live;
+    foxSim.step(dt, inp);
   },
   (frameMs) => {
     stage.updatePerf(frameMs);
@@ -139,6 +185,9 @@ loop.start();
 interface HarnessBridge {
   readonly ready: boolean;
   render(): void;
+  advance(seconds: number): void;
+  drive(steer: number, drift: boolean, seconds: number): void;
+  fox(): { x: number; z: number; speed: number; frost: number; heading: number; drifting: boolean };
   stats(): Record<string, number | string>;
 }
 
@@ -149,6 +198,23 @@ if (params.get('harness') === '1') {
     },
     render() {
       renderFrame(1 / 60);
+    },
+    advance(seconds: number) {
+      loop.advance(seconds);
+    },
+    drive(steer: number, drift: boolean, seconds: number) {
+      driveOverride = { steer, drift, until: loop.simTime + seconds };
+    },
+    fox() {
+      const st = foxSim.state;
+      return {
+        x: st.position.x,
+        z: st.position.z,
+        speed: st.speed,
+        frost: st.frost,
+        heading: st.heading,
+        drifting: st.drifting,
+      };
     },
     stats() {
       return {
