@@ -21,7 +21,9 @@ import type { PostFxState } from './render/postPipeline';
 import { createAurora } from './render/aurora';
 import { createVista } from './render/vista';
 import { createBackdrop } from './world/backdrop';
+import { createSnowfield } from './world/snowfield';
 import { loadProp } from './world/props';
+import { Fox } from './game/fox';
 import { LAYER_ENERGY } from './contracts';
 import gateUrl from './assets/models/gate.glb?url';
 import vistaUrl from './assets/textures/keyart-vista-plate.png?url';
@@ -39,61 +41,10 @@ stage.scene.add(sky.object);
 const aurora = createAurora();
 stage.scene.add(aurora.object);
 
-// ---------------------------------------------------------------------------
-// Snowfield: deterministic LowPoly dunes. White albedo reads near-white on
-// the lit band and cyan-blue on the shade band (the toon shader hue-shifts
-// shadows toward the sky), matching the key art's 白雪蓝影. Distance fog
-// melts the far dunes into the pale horizon exactly like the reference.
-// ---------------------------------------------------------------------------
-function hash2(ix: number, iz: number): number {
-  const s = Math.sin(ix * 127.1 + iz * 311.7) * 43758.5453;
-  return s - Math.floor(s);
-}
-
-function valueNoise(x: number, z: number): number {
-  const ix = Math.floor(x);
-  const iz = Math.floor(z);
-  const fx = x - ix;
-  const fz = z - iz;
-  const sx = fx * fx * (3 - 2 * fx);
-  const sz = fz * fz * (3 - 2 * fz);
-  const a = hash2(ix, iz);
-  const b = hash2(ix + 1, iz);
-  const c = hash2(ix, iz + 1);
-  const d = hash2(ix + 1, iz + 1);
-  return a + (b - a) * sx + (c - a) * sz + (a - b - c + d) * sx * sz;
-}
-
-function snowHeight(x: number, z: number): number {
-  return (valueNoise(x / 16, z / 16) - 0.5) * 1.4 + (valueNoise(x / 52 + 31, z / 52 + 17) - 0.5) * 3.0;
-}
-
-// Past the day fog bands (260/760 m) extra ground detail is invisible, so a
-// 900 m plane at 6.25 m facets is all the field we need.
-const SNOW_MIN_H = -(0.7 + 1.5);
-const SNOW_MAX_H = 0.7 + 1.5;
-const snowGeo = new THREE.PlaneGeometry(900, 900, 144, 144);
-snowGeo.rotateX(-Math.PI / 2);
-const snowPositions = snowGeo.attributes.position;
-for (let i = 0; i < snowPositions.count; i++) {
-  snowPositions.setY(i, snowHeight(snowPositions.getX(i), snowPositions.getZ(i)));
-}
-// Per-vertex tint: crests pure white, troughs pale cyan — the key art's
-// 白雪蓝影 patchwork, multiplied into the albedo by the toon shader.
-const snowTint = new Float32Array(snowPositions.count * 3);
-for (let i = 0; i < snowPositions.count; i++) {
-  const f = (snowPositions.getY(i) - SNOW_MIN_H) / (SNOW_MAX_H - SNOW_MIN_H);
-  snowTint[i * 3] = 0.62 + 0.38 * f;
-  snowTint[i * 3 + 1] = 0.78 + 0.22 * f;
-  snowTint[i * 3 + 2] = 1.0;
-}
-snowGeo.setAttribute('color', new THREE.BufferAttribute(snowTint, 3));
-const snow = new THREE.Mesh(
-  snowGeo.toNonIndexed(),
-  createToonMaterial({ color: 0xffffff, rimStrength: 0.15, specColor: 0xcfe4f8, vertexColors: true }),
-);
-snow.geometry.computeVertexNormals();
-stage.scene.add(snow);
+// The snowfield (dunes + key-art ice streaks) lives in world/snowfield.ts;
+// its height function is the ground truth for both renderer and sim.
+const snowfield = createSnowfield();
+stage.scene.add(snowfield.object);
 
 // A vast flat apron carries the snowfield out to the horizon so the vista
 // band never shows a gap under the painting's ice line. Color sampled from
@@ -124,16 +75,20 @@ gate.scale.setScalar(1.8);
 gate.position.set(-26, 2.0, 85);
 stage.scene.add(gate);
 
+// The fox, standing on the snow at the origin. Movement physics lands next
+// in M1; the mesh and pose loop come first.
+const fox = new Fox();
+fox.object.position.set(0, snowfield.height(0, 0), 0);
+stage.scene.add(fox.object);
+
 // Emissive ravine rims live on the shared energy layer; the beauty camera
 // must see them too (the bloom composer masks the layer itself per frame).
 stage.camera.layers.enable(LAYER_ENERGY);
 
-// Low chase vantage facing +Z: snow fills the lower frame, the ravine cuts
-// the midfield, the ice wall looms frame right (-X world = screen right when
-// facing +Z), peaks carry the skyline, aurora curtains arc overhead, and the
-// warm horizon wash off-frame left keeps the 蓝金对比 without a sun disc.
-stage.camera.position.set(0, snowHeight(0, 10) + 4.2, 10);
-stage.camera.lookAt(-14, 8, 90);
+// Chase framing (the game's real camera): fox low in frame, the ravine, the
+// floating gate and the painted skyline ahead.
+stage.camera.position.set(1.1, snowfield.height(0, 0) + 1.7, -4.4);
+stage.camera.lookAt(-0.5, 1.0, 10);
 
 const pipeline = createPostPipeline(stage.renderer, stage.scene, stage.camera, null, stage.quality);
 stage.onResize((w, h, pr) => pipeline.setSize(w, h, pr));
@@ -163,6 +118,7 @@ function renderFrame(dt: number): void {
   sky.update(loop.simTime, stage.camera.position);
   aurora.update(loop.simTime, stage.camera.position);
   vista.update(stage.camera.position);
+  fox.update(loop.simTime);
   pipeline.update(dt, loop.simTime, IDLE_FX, 'running');
   pipeline.render();
 }

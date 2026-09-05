@@ -75,6 +75,10 @@ export const PALETTE = {
   ravineFloor: 0x032e87,
   gold: 0xd9a53a,
   goldDeep: 0x8c6a1f,
+  // The arctic fox itself (key art: white body, cyan-blue shade, dark points).
+  foxWhite: 0xf8fbff,
+  foxShade: 0xd9e8f7,
+  foxDark: 0x2b3245,
   /** Direction TOWARD the sun (normalize before use). Shared by sky, toon lighting, water spec. */
   sunDir: [0.5, 0.55, 0.55] as readonly number[],
 } as const;
