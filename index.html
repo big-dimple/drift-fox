@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="description" content="操控全速疾驰的北极狐，利爪抓雪贴地漂移，蓄满寒气飞跃裂谷。" />
+    <meta name="theme-color" content="#2e6df6" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="雪地：北极狐" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <link rel="icon" href="data:," />
+    <title>雪地：北极狐</title>
+    <style>
+      html, body, #app {
+        margin: 0;
+        padding: 0;
+        width: 100%;
+        height: 100%;
+        min-width: 100%;
+        min-height: 100%;
+        overflow: hidden;
+        background: #2e6df6;
+      }
+      html, body {
+        overflow: hidden;
+        font-family: 'Arial Black', 'Helvetica Neue', Arial, sans-serif;
+        -webkit-user-select: none;
+        user-select: none;
+        touch-action: none;
+      }
+      #app {
+        position: fixed;
+        top: 0;
+        left: 0;
+      }
+      #app > canvas {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        display: block;
+        touch-action: none;
+      }
+      #rotate-hint {
+        display: none;
+      }
+      @media (orientation: portrait) {
+        #rotate-hint {
+          position: fixed;
+          inset: 0;
+          z-index: 10;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          gap: 18px;
+          background: #2e6df6;
+          color: #f4feff;
+          font-size: 18px;
+          letter-spacing: 0.08em;
+          text-align: center;
+          padding: 0 32px;
+        }
+        #rotate-hint .rotate-phone {
+          width: 34px;
+          height: 58px;
+          border: 3px solid #8ae8ff;
+          border-radius: 7px;
+          animation: rotate-phone 1.6s ease-in-out infinite;
+        }
+        @keyframes rotate-phone {
+          0%, 25% { transform: rotate(0deg); }
+          60%, 100% { transform: rotate(90deg); }
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <div id="rotate-hint" role="alert">
+      <div class="rotate-phone" aria-hidden="true"></div>
+      <p>请旋转设备，横屏游玩</p>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

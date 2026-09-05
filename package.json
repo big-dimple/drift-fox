@@ -1,0 +1,24 @@
+{
+  "name": "drift-fox",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Landscape-first cel-shaded arcade snowfield drifter: an arctic fox grips, drifts, and leaps ravines.",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "shot": "node harness/screenshot.mjs",
+    "verify:smoke": "node harness/screenshot.mjs --verify-smoke"
+  },
+  "dependencies": {
+    "three": "^0.185.1"
+  },
+  "devDependencies": {
+    "@types/three": "^0.185.0",
+    "playwright": "^1.62.1",
+    "typescript": "~5.9.3",
+    "vite": "^8.2.1"
+  }
+}

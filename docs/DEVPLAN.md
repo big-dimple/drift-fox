@@ -1,6 +1,6 @@
 # Drift Fox 开发计划 v1.0
 
-> 状态：M0 未开始 · 2026-09-05
+> 状态：M0 进行中（美术方向按原画修正为「白昼极光」后重启）· 2026-09-05
 > 上游合同：`docs/PRODUCT.md`（产品计划定稿）。本计划只排"怎么落地"，不改产品决定。
 
 ## 复用策略
@@ -10,11 +10,14 @@ drift-fox 是新仓库，但从 board-race 选择性移植**已验证的渲染�
 | 来源（board-race） | 用途 | 说明 |
 |---|---|---|
 | `src/cel/toonMaterial.ts` `edgePass.ts` `outline.ts` `postPipeline.ts` `sky.ts` | 渲染底座 | 直接移植为 drift-fox `src/render/`，风格合同的核心载体 |
-| `src/core/timeOfDay.ts` `nightPalette.ts` `palette.ts` | 极光夜 | 变种为「雪夜极光」色彩剧本 |
+| `src/core/timeOfDay.ts` `nightPalette.ts` `palette.ts` | 色彩剧本 | 变种为「白昼极光」色彩剧本（对齐原画：亮蓝白昼 + 青绿极光帘） |
 | `src/core/loop.ts` `input.ts` `stage.ts` `gamepadInput.ts` `haptics.ts` | 地基 | 60Hz 固定步 + 输入合同原样移植 |
 | `src/game/boat.ts` 漂移段 | 手感参考 | 抓地漂移的向心 G / 角速度 / 阻尼参数派生，不拷贝代码 |
 | `src/game/course.ts` 样条/航线概念 | 赛道参考 | 收窄版：单赛道 + 5 飞跃点，不搬七轨/雾道/Final 体系 |
 | `harness/screenshot.mjs` + `verify:smoke` | 验证 | 裁剪版：启动渲染 + 核心合同断言 + 双尺寸截图 |
+| 3D AI 生成静态资产（冰晶门 / 冰崖套件 / 雪松 / 冰晶簇） | 道具美术 | 原画风格提示词生成 .glb，入库 `src/assets/models/`，进场统一转 toonMaterial + 描边 |
+
+狐狸、地形、天空、极光维持程序化：狐狸要绑进 60Hz 固定步与骨骼动画，地形要精确碰撞高度场，天空极光是 shader——这三类不走 AI 资产。
 
 明确不搬：双人分屏、导弹/互动、高光录像、荣誉/金币经济、PWA 之外的开场体系。
 
@@ -23,7 +26,7 @@ drift-fox 是新仓库，但从 board-race 选择性移植**已验证的渲染�
 ### M0 — 地基（目标 1 天）
 
 - Vite + TS 骨架，目录 `src/render|core|game|world|hud`，`index.html` 竖屏旋转提示；
-- 移植渲染五件套 + loop/input/stage，空场景跑出极光雪夜天空；
+- 移植渲染五件套 + loop/input/stage，空场景跑出白昼极光雪原（亮蓝白昼天空 + 极光帘 + 白雪蓝影，对齐原画），并立起原画背景板：远山雪峰、右侧蓝冰崖、发光裂谷（纯视觉锚点，无玩法，玩法版裂谷归 M2）；
 - `verify:smoke` 裁剪版上线（能启动、渲染非空、844x390 截图）。
 - **验收**：build + smoke 绿，桌面/手机天空截图评审通过。
 
@@ -43,7 +46,7 @@ drift-fox 是新仓库，但从 board-race 选择性移植**已验证的渲染�
 
 ### M3 — 环境互动（目标 3-4 天）
 
-- 松树林回转门、扬尘尾迹、冰面裂纹 decal（复用 M1 decal 池）、雪夜极光色彩剧本调优。
+- 松树林回转门、扬尘尾迹、冰面裂纹 decal（复用 M1 decal 池）、白昼极光色彩剧本调优（极光帘形态/密度/流动感）。
 - **验收**：三件套 + 松林截图评审；夜航可读性对标 board-race 夜间合同。
 
 ### M4 — 表现层完整化（目标 3-4 天）
