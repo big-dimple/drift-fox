@@ -20,7 +20,9 @@ import { createPostPipeline } from './render/postPipeline';
 import type { PostFxState } from './render/postPipeline';
 import { createAurora } from './render/aurora';
 import { createBackdrop } from './world/backdrop';
+import { loadProp } from './world/props';
 import { LAYER_ENERGY } from './contracts';
+import gateUrl from './assets/models/gate.glb?url';
 
 const params = new URLSearchParams(window.location.search);
 const app = document.getElementById('app');
@@ -104,6 +106,14 @@ stage.scene.add(farGround);
 // The key-art vista: skyline peaks, right-hand ice cliffs, glowing ravine.
 const backdrop = createBackdrop();
 stage.scene.add(backdrop.object);
+
+// The golden gate floats over the ravine — the key art's focal point and the
+// first asset off the Blender headless pipeline. Awaited so harness
+// screenshots are deterministic.
+const gate = await loadProp(gateUrl);
+gate.scale.setScalar(1.5);
+gate.position.set(-26, 2.0, 85);
+stage.scene.add(gate);
 
 // Emissive ravine rims live on the shared energy layer; the beauty camera
 // must see them too (the bloom composer masks the layer itself per frame).

@@ -62,6 +62,18 @@ export const PALETTE = {
   uiAccentCss: '#39ff88',
   uiWarn: 0xff3d7f,
   uiWarnCss: '#ff3d7f',
+
+  // Drift Fox — 街机雪原 key-art prop colors. Blender/AI props carry only
+  // semantic material names; these are the single source of truth.
+  snowWhite: 0xf6fbff,
+  rockBlue: 0x7ba0d6,
+  iceCyan: 0x4fb0e0,
+  iceDeep: 0x2e7ec0,
+  iceGlow: 0x8ff4ff,
+  ravineWall: 0x2e6ba8,
+  ravineFloor: 0x0d3352,
+  gold: 0xd9a53a,
+  goldDeep: 0x8c6a1f,
   /** Direction TOWARD the sun (normalize before use). Shared by sky, toon lighting, water spec. */
   sunDir: [0.5, 0.55, 0.55] as readonly number[],
 } as const;

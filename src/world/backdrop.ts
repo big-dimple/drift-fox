@@ -9,6 +9,7 @@
  */
 import * as THREE from 'three';
 import { createToonMaterial } from '../render/toonMaterial';
+import { PALETTE } from '../core/palette';
 import { LAYER_ENERGY } from '../contracts';
 
 /** Deterministic hash → 0..1 (stable layout across runs/screenshots). */
@@ -24,18 +25,10 @@ function faceted(geometry: THREE.BufferGeometry): THREE.BufferGeometry {
   return flat;
 }
 
-const ROCK_BLUE = 0x7ba0d6;
-const SNOW_CAP = 0xf6fbff;
-const ICE_CYAN = 0x4fb0e0;
-const ICE_DEEP = 0x2e7ec0;
-const RAVINE_WALL = 0x2e6ba8;
-const RAVINE_FLOOR = 0x0d3352;
-const RAVINE_GLOW = 0x8ff4ff;
-
 /** Skyline ridge: paired rock cone + snow cap, leaning slightly, jagged. */
 function buildPeaks(parent: THREE.Group): void {
-  const rockMat = createToonMaterial({ color: ROCK_BLUE, rimStrength: 0.15 });
-  const capMat = createToonMaterial({ color: SNOW_CAP, rimStrength: 0.2 });
+  const rockMat = createToonMaterial({ color: PALETTE.rockBlue, rimStrength: 0.15 });
+  const capMat = createToonMaterial({ color: PALETTE.snowWhite, rimStrength: 0.2 });
   for (let i = 0; i < 9; i++) {
     const x = -640 + i * 135 + (hash(i, 1) - 0.5) * 80;
     const z = 380 + hash(i, 2) * 180;
@@ -69,9 +62,9 @@ function buildPeaks(parent: THREE.Group): void {
  * layered wall like the key art's right side.
  */
 function buildIceCliffs(parent: THREE.Group): void {
-  const cyanMat = createToonMaterial({ color: ICE_CYAN, rimStrength: 0.3, specThreshold: 0.96 });
-  const deepMat = createToonMaterial({ color: ICE_DEEP, rimStrength: 0.25, specThreshold: 0.96 });
-  const capMat = createToonMaterial({ color: SNOW_CAP, rimStrength: 0.2 });
+  const cyanMat = createToonMaterial({ color: PALETTE.iceCyan, rimStrength: 0.3, specThreshold: 0.96 });
+  const deepMat = createToonMaterial({ color: PALETTE.iceDeep, rimStrength: 0.25, specThreshold: 0.96 });
+  const capMat = createToonMaterial({ color: PALETTE.snowWhite, rimStrength: 0.2 });
   for (let i = 0; i < 10; i++) {
     const w = 26 + hash(i, 11) * 38;
     const h = 34 + hash(i, 12) * 78;
@@ -106,8 +99,8 @@ function buildRavine(parent: THREE.Group): void {
   const length = 1000;
   const halfWidth = 19;
   const depth = 18;
-  const wallMat = createToonMaterial({ color: RAVINE_WALL, rimStrength: 0.2 });
-  const floorMat = createToonMaterial({ color: RAVINE_FLOOR, rimStrength: 0.05 });
+  const wallMat = createToonMaterial({ color: PALETTE.ravineWall, rimStrength: 0.2 });
+  const floorMat = createToonMaterial({ color: PALETTE.ravineFloor, rimStrength: 0.05 });
 
   const floor = new THREE.Mesh(new THREE.BoxGeometry(length, 2, halfWidth * 2), floorMat);
   floor.position.y = -depth;
@@ -117,7 +110,7 @@ function buildRavine(parent: THREE.Group): void {
   // the dark gash on the snow surface between the glowing rims.
   const slit = new THREE.Mesh(
     new THREE.PlaneGeometry(length, halfWidth * 2),
-    createToonMaterial({ color: RAVINE_FLOOR, rimStrength: 0 }),
+    createToonMaterial({ color: PALETTE.ravineFloor, rimStrength: 0 }),
   );
   slit.rotation.x = -Math.PI / 2;
   slit.position.y = 0.12;
@@ -133,7 +126,7 @@ function buildRavine(parent: THREE.Group): void {
 
     const glow = new THREE.Mesh(
       new THREE.BoxGeometry(length, 1.4, 3.2),
-      createToonMaterial({ color: RAVINE_GLOW, emissive: RAVINE_GLOW, emissiveIntensity: 2.2 }),
+      createToonMaterial({ color: PALETTE.iceGlow, emissive: PALETTE.iceGlow, emissiveIntensity: 2.2 }),
     );
     glow.position.set(0, 0.8, side * (halfWidth + 0.8));
     glow.layers.set(LAYER_ENERGY);
@@ -141,7 +134,7 @@ function buildRavine(parent: THREE.Group): void {
   }
 
   // Jagged ice teeth along the rims sell the crack.
-  const toothMat = createToonMaterial({ color: ICE_CYAN, rimStrength: 0.3 });
+  const toothMat = createToonMaterial({ color: PALETTE.iceCyan, rimStrength: 0.3 });
   for (let i = 0; i < 26; i++) {
     const side = hash(i, 21) > 0.5 ? 1 : -1;
     const h = 2 + hash(i, 22) * 6;
@@ -170,7 +163,7 @@ export function createBackdrop(): Backdrop {
   group.add(ravine);
 
   // Scattered ice shards across the near field — the key art's debris spray.
-  const shardMat = createToonMaterial({ color: ICE_CYAN, rimStrength: 0.35 });
+  const shardMat = createToonMaterial({ color: PALETTE.iceCyan, rimStrength: 0.35 });
   for (let i = 0; i < 34; i++) {
     const h = 0.8 + hash(i, 31) * 3.2;
     const shard = new THREE.Mesh(

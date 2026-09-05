@@ -10,7 +10,8 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "shot": "node harness/screenshot.mjs",
-    "verify:smoke": "node harness/screenshot.mjs --verify-smoke"
+    "verify:smoke": "node harness/screenshot.mjs --verify-smoke",
+    "build:assets": "bash tools/blender/build_all.sh"
   },
   "dependencies": {
     "three": "^0.185.1"
